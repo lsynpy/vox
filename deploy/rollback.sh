@@ -31,7 +31,7 @@ rollback_remote() {
     fi
 
     echo "==> Rolling back to ${IMAGE_TAG} on ${VPS_HOSTNAME}..."
-    ssh "${VPS_HOSTNAME}" << REMOTE_EOF
+    ssh "${VPS_HOSTNAME}" bash << REMOTE_EOF
         set -euo pipefail
 
         echo "  Stopping existing container..."

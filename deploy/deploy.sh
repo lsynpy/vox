@@ -64,7 +64,7 @@ deploy_container() {
             "${IMAGE_TAG}" \
             -f -w /usr/share/polaris/web
     else
-        ssh "${VPS_HOSTNAME}" <<SSH_EOF
+        ssh "${VPS_HOSTNAME}" bash <<SSH_EOF
             set -euo pipefail
             echo '  Pulling image...'
             docker pull ${IMAGE_TAG}
@@ -74,7 +74,7 @@ deploy_container() {
             docker run -d \
                 --name polaris \
                 --restart unless-stopped \
-                -p ${POLARIS_PORT}:${POLARIS_PORT} \
+                --net=host \
                 -v ${MUSIC_DIR}:/music \
                 -v ${CONFIG_DIR}:/var/lib/polaris \
                 -v ${CACHE_DIR}:/var/cache/polaris \
