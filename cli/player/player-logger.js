@@ -40,15 +40,24 @@ function rotateIfNeeded() {
   }
 }
 
-// Recursively decode percent-encoded strings in an object (for log readability)
-function decodeUrl(o) {
+// Strip auth_token from URL strings before logging
+function stripTokens(s) {
+  // Remove auth_token query param entirely, then clean up artifacts
+  return s
+    .replace(/[?&]auth_token=[^&\s]+/g, "")
+    .replace(/^([^?]*)&/, "$1?")
+    .replace(/[?&]$/, "");
+}
+
+// Recursively decode percent-encoded strings and strip sensitive tokens
+function sanitize(o) {
   if (typeof o === "string") {
-    try { return decodeURIComponent(o); } catch { return o; }
+    try { return stripTokens(decodeURIComponent(o)); } catch { return stripTokens(o); }
   }
-  if (Array.isArray(o)) return o.map(decodeUrl);
+  if (Array.isArray(o)) return o.map(sanitize);
   if (o && typeof o === "object") {
     const r = {};
-    for (const k of Object.keys(o)) r[k] = decodeUrl(o[k]);
+    for (const k of Object.keys(o)) r[k] = sanitize(o[k]);
     return r;
   }
   return o;
@@ -60,7 +69,7 @@ function write(level, msg, data) {
   const d = new Date();
   const ts = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}:${String(d.getSeconds()).padStart(2,"0")}`;
   const paddedLevel = level.padEnd(6);
-  const dataStr = data !== undefined ? "  " + JSON.stringify(decodeUrl(data)) : "";
+  const dataStr = data !== undefined ? "  " + JSON.stringify(sanitize(data)) : "";
   const line = `[${ts}] [${paddedLevel}] ${msg}${dataStr}\n`;
   try {
     fs.appendFileSync(LOG_FILE, line);
