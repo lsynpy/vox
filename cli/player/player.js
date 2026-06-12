@@ -391,6 +391,17 @@ function ensureMpv(state) {
 
 // ─── Commands ────────────────────────────────────────────────
 
+// Read macOS system volume
+function getMacosVolume() {
+  try {
+    const { execSync } = require("child_process");
+    const vol = execSync("osascript -e 'output volume of (get volume settings)'", { encoding: "utf-8", timeout: 3000 }).trim();
+    return vol || "?";
+  } catch {
+    return "?";
+  }
+}
+
 async function cmdPlay(query) {
   const results = searchScored(query);
   if (results.length === 0) {
@@ -604,7 +615,15 @@ async function cmdStatus() {
     const out = execSync(`osascript -e 'output volume of (get volume settings)'`, { encoding: "utf-8", timeout: 3000 }).trim();
     sysVol = out;
   } catch { /* ignore */ }
-  console.log(`Volume: mpv ${state.volume}%  |  macOS ${sysVol}%`);
+  // Show real volumes
+  let mpvVol = state.volume;
+  if (state.pid) {
+    try {
+      const resp = await sendMpvCommand(["get_property", "volume"]);
+      if (resp && typeof resp.data === 'number') mpvVol = Math.round(resp.data);
+    } catch { /* use saved state */ }
+  }
+  console.log(`Volume: mpv ${mpvVol}%  |  macOS ${sysVol}%`);
   if (state.pid) {
     console.log("mpv: running");
     try {
@@ -664,12 +683,14 @@ async function cmdVolume(args) {
   state.volume = level;
   saveState(state);
   try {
-    const running = state.pid && await ensureMpv(state);
-    await sendMpvCommand(["set", "volume", level]);
-  } catch {}
-  const { execSync } = require("child_process");
-  let sysVol = "?";
-  try { sysVol = execSync("osascript -e 'output volume of (get volume settings)'", { encoding: "utf-8", timeout: 3000 }).trim(); } catch {}
+    // Only send to mpv if it's running — don't call ensureMpv (it restarts mpv!)
+    if (state.pid) {
+      try {
+        await sendMpvCommand(["set", "volume", String(level)]);
+      } catch { /* mpv not available */ }
+    }
+  } catch { /* ignore */ }
+  const sysVol = await getMacosVolume();
   console.log(`mpv: ${level}%  |  macOS: ${sysVol}%`);
 }
 
