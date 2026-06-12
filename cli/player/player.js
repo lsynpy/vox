@@ -598,7 +598,13 @@ async function cmdList() {
 
 async function cmdStatus() {
   const state = await syncCurrentIndexFromMpv(loadState());
-  console.log(`Volume: ${state.volume}%`);
+  const { execSync } = require("child_process");
+  let sysVol = "?";
+  try {
+    const out = execSync(`osascript -e 'output volume of (get volume settings)'`, { encoding: "utf-8", timeout: 3000 }).trim();
+    sysVol = out;
+  } catch { /* ignore */ }
+  console.log(`Volume: mpv ${state.volume}%  |  macOS ${sysVol}%`);
   if (state.pid) {
     console.log("mpv: running");
     try {
@@ -661,7 +667,25 @@ async function cmdVolume(args) {
     const running = state.pid && await ensureMpv(state);
     await sendMpvCommand(["set", "volume", level]);
   } catch {}
-  console.log(`Volume: ${level}%`);
+  const { execSync } = require("child_process");
+  let sysVol = "?";
+  try { sysVol = execSync("osascript -e 'output volume of (get volume settings)'", { encoding: "utf-8", timeout: 3000 }).trim(); } catch {}
+  console.log(`mpv: ${level}%  |  macOS: ${sysVol}%`);
+}
+
+// System volume (macOS)
+async function cmdSysvol(level) {
+  if (isNaN(level) || level < 0 || level > 100) {
+    console.log("Usage: player sysvol <0-100>");
+    return;
+  }
+  const { execSync } = require("child_process");
+  try {
+    execSync(`osascript -e 'set volume output volume ${level}'`, { timeout: 3000 });
+    console.log(`macOS system volume: ${level}%`);
+  } catch (err) {
+    console.error(`Failed to set system volume: ${err.message}`);
+  }
 }
 
 async function cmdSeek(args) {
@@ -724,7 +748,8 @@ Info:
   status              Show playback status
   now                 Show current track info
   search <query>      Search music library
-  volume <0-100>      Set volume
+  volume <0-100>      Set mpv volume
+  sysvol <0-100>      Set macOS system volume
   seek <+/-seconds>   Seek forward/backward
   help                Show this help
 
@@ -1002,6 +1027,7 @@ async function main() {
       case "status": await cmdStatus(); break;
       case "now": await cmdNow(); break;
       case "volume": await cmdVolume(rest); break;
+      case "sysvol": await cmdSysvol(parseInt(rest[0], 10)); break;
       case "seek": await cmdSeek(rest); break;
       case "search": await cmdSearch(rest.join(" ")); break;
       case "playlist": await cmdPlaylist(rest.join(" ")); break;
