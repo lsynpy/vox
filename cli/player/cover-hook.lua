@@ -37,8 +37,12 @@ end
 function url_decode(str)
     if not str then return "" end
     local decoded = str:gsub("%%(%x%x)", function(hex) return string.char(tonumber(hex, 16)) end)
-    -- Remove auth_token parameter from URLs
-    decoded = decoded:gsub("([?&])auth_token=[^&%s]+", "%1auth_token=[REDACTED]")
+    -- Remove auth_token parameter entirely
+    decoded = decoded:gsub("[?&]auth_token=[^&]*", function(m)
+        if m:sub(1, 1) == "?" then return "?" else return "" end
+    end)
+    decoded = decoded:gsub("%?&", "?")
+    decoded = decoded:gsub("%?$", "")
     return decoded
 end
 
