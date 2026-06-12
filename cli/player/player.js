@@ -165,26 +165,24 @@ function sendMpvCommand(command) {
 }
 
 // Ensure mpv is running. No local state — just try IPC, restart if needed.
-// Also starts the NowPlaying bridge daemon for album art in macOS Control Center.
+// Also loads the album-art plugin so macOS NowPlaying shows cover art.
 async function ensureMpv() {
   // Try existing socket
   try {
     await sendMpvCommand(["get_property", "volume"]);
-    // mpv is alive, ensure bridge is too
-    startNowPlayingBridge();
-    return;
+    return; // mpv is alive
   } catch { /* mpv not reachable, start it */ }
 
-  // Kill stale mpv and bridge
-  try { require("child_process").execSync("pkill -f 'mpv.*polaris-player' 2>/dev/null", { stdio: "ignore" }); } catch {}
-  try { require("child_process").execSync("pkill -f 'mpv-nowplaying-bridge' 2>/dev/null", { stdio: "ignore" }); } catch {}
+  // Kill stale mpv
+  try { require("child_process").execSync(`pkill -f 'mpv.*${path.basename(IPC_SOCKET)}' 2>/dev/null`, { stdio: "ignore" }); } catch {}
   try { fs.unlinkSync(IPC_SOCKET); } catch {}
 
   // Ensure socket dir exists
   fs.mkdirSync(SOCKET_DIR, { recursive: true });
 
-  // Start mpv as detached daemon
-  const cmd = `nohup mpv --no-video --no-terminal --idle --input-ipc-server='${IPC_SOCKET}' > '${MPV_LOG}' 2>&1 & echo $!`;
+  // Start mpv as detached daemon, loading the album-art plugin
+  const pluginPath = path.join(__dirname, "mpv-album-art-plugin.dylib");
+  const cmd = `nohup mpv --no-video --no-terminal --idle --input-ipc-server='${IPC_SOCKET}' --script='${pluginPath}' > '${MPV_LOG}' 2>&1 & echo $!`;
   try {
     const { execSync } = require("child_process");
     execSync(cmd, { shell: "/bin/bash", encoding: "utf-8", timeout: 5000 });
@@ -196,25 +194,6 @@ async function ensureMpv() {
   // Wait for IPC socket
   for (let i = 0; i < 50; i++) {
     try { fs.accessSync(IPC_SOCKET); break; } catch { await new Promise(r => setTimeout(r, 100)); }
-  }
-
-  // Start NowPlaying bridge daemon
-  startNowPlayingBridge();
-}
-
-function startNowPlayingBridge() {
-  try {
-    const { execSync } = require("child_process");
-    execSync("pgrep -f mpv-nowplaying-bridge >/dev/null 2>&1", { stdio: "pipe" });
-    // Already running
-  } catch {
-    // Not running, start it
-    try {
-      require("child_process").execSync(
-        "nohup /usr/local/bin/mpv-nowplaying-bridge > /dev/null 2>&1 &",
-        { shell: "/bin/bash", stdio: "pipe", timeout: 3000 }
-      );
-    } catch { /* ignore */ }
   }
 }
 
@@ -297,7 +276,63 @@ async function mpvNowPlaying() {
   }
 }
 
-// ─── Commands ────────────────────────────────────────────────
+// ─── Cover art → macOS NowPlaying ────────────────────────
+
+// Push album art to mpv's NowPlaying via cover-art-files IPC property.
+// Extracts embedded cover art from the current audio file.
+const COVER_CACHE = new Map();
+const COVER_TMP = path.join(os.tmpdir(), "mpv-player-cover.jpg");
+
+async function pushCoverArt() {
+  try {
+    // Get current file path from mpv
+    const pathResp = await sendMpvCommand(["get_property", "path"]);
+    let localPath = pathResp?.data || "";
+    if (!localPath) return;
+
+    // If JDC URL, resolve to local path
+    if (localPath.startsWith("http://192.168.100.1:5050")) {
+      const parts = new URL(localPath).pathname.split("/");
+      const audioIdx = parts.indexOf("audio");
+      if (audioIdx < 0) return;
+      // relative = Music/Artist/Album/file.ext without auth_token
+      const relParts = parts.slice(audioIdx + 1).map(s => decodeURIComponent(s));
+      // relParts[0] = "Music", rest = "Artist/Album/file.ext"
+      if (relParts.length < 2) return;
+      const relative = relParts.slice(1).join("/");
+      // Strip "Music/" prefix if present
+      const normRel = relative.startsWith("Music/") ? relative.slice(6) : relative;
+      localPath = path.join(MUSIC_DIR, normRel);
+    } else if (!localPath.startsWith("/")) {
+      // Relative path
+      localPath = path.join(MUSIC_DIR, localPath);
+    }
+
+    if (!fs.existsSync(localPath)) return;
+
+    // Cache: skip if already extracted for this file
+    const stat = fs.statSync(localPath);
+    const cacheKey = `${localPath}:${stat.mtimeMs}`;
+    if (COVER_CACHE.get(cacheKey)) return;
+
+    // Extract cover art using ffmpeg
+    const { execSync } = require("child_process");
+    execSync(
+      `ffmpeg -y -i '${localPath.replace(/'/g, "'\\''")}' -an -vcodec copy '${COVER_TMP}' 2>/dev/null`,
+      { timeout: 5000, stdio: "ignore" }
+    );
+
+    if (fs.existsSync(COVER_TMP) && fs.statSync(COVER_TMP).size > 100) {
+      await sendMpvCommand(["set", "cover-art-files", COVER_TMP]);
+      COVER_CACHE.set(cacheKey, true);
+      // Limit cache size
+      if (COVER_CACHE.size > 50) {
+        const firstKey = COVER_CACHE.keys().next().value;
+        COVER_CACHE.delete(firstKey);
+      }
+    }
+  } catch { /* cover art is optional */ }
+}
 
 function getMacosVolume() {
   try {
@@ -317,6 +352,7 @@ async function cmdPlay(query) {
     const url = await resolveTrackUrl(best.relative);
     await sendMpvCommand(["loadfile", url, "replace"]);
     console.log(`Playing: ${best.artist} — ${best.title}`);
+    setTimeout(() => pushCoverArt(), 500);
     if (results.length > 1) {
       console.log(`  (${results.length - 1} more matches, use queue or list to browse)`);
     }
@@ -328,7 +364,7 @@ async function cmdPlay(query) {
 async function cmdPause() {
   await ensureMpv();
   try {
-    await sendMpvCommand(["set", "pause", true]);
+    await sendMpvCommand(["set", "pause", "yes"]);
     console.log("Paused");
   } catch (err) { console.error(`Failed to pause: ${err.message}`); }
 }
@@ -336,7 +372,7 @@ async function cmdPause() {
 async function cmdResume() {
   await ensureMpv();
   try {
-    await sendMpvCommand(["set", "pause", false]);
+    await sendMpvCommand(["set", "pause", "no"]);
     console.log("Resumed");
   } catch (err) { console.error(`Failed to resume: ${err.message}`); }
 }
@@ -695,7 +731,6 @@ async function cmdPlaylist(name) {
     for (let i = 0; i < plPaths.length; i++) {
       try {
         const p = plPaths[i];
-        const localPath = polarisPathToLocal(p);
         const url = await resolveTrackUrl(p);
         const mode = i === 0 ? "replace" : "append";
         await sendMpvCommand(["loadfile", url, mode]);
@@ -704,6 +739,7 @@ async function cmdPlaylist(name) {
     }
 
     console.log(`Loaded playlist "${playlistName}" (${loaded}/${plPaths.length} tracks)`);
+    setTimeout(() => pushCoverArt(), 500);
 
     const np = await mpvNowPlaying();
     if (np && np.title) {
