@@ -2,22 +2,11 @@
 /**
  * polaris-player — macOS CLI music player for Polaris music library.
  *
+ * No local state caching — everything reads from mpv IPC or Polaris API in real time.
+ * mpv's own internal playlist IS the queue. No local state.json.
+ *
  * Depends on: mpv (brew install mpv)
- * Usage:
- *   player play <query>     Search and play a song
- *   player pause             Pause playback
- *   player resume            Resume playback
- *   player toggle            Toggle play/pause
- *   player stop              Stop playback
- *   player next              Next track in queue
- *   player prev              Previous track
- *   player queue [<query>]   Show queue or add track(s)
- *   player list              Show queued tracks
- *   player status            Show current playback state
- *   player volume <0-100>    Set volume
- *   player seek <+/-seconds> Seek forward/backward
- *   player search <query>    Search library, show results
- *   player now               Show current track info
+ * Usage: see cmdHelp()
  */
 
 "use strict";
@@ -26,51 +15,17 @@ const fs = require("fs");
 const path = require("path");
 const net = require("net");
 const os = require("os");
-const readline = require("readline");
 
 // ─── Configuration ───────────────────────────────────────────
 const MUSIC_DIR = path.join(os.homedir(), "Music", "polaris");
-const STATE_DIR = path.join(os.homedir(), ".polaris", "player");
-const STATE_FILE = path.join(STATE_DIR, "state.json");
-const IPC_SOCKET = path.join(os.homedir(), ".polaris", "player", "mpv.sock");
+const SOCKET_DIR = path.join(os.homedir(), ".polaris", "player");
+const IPC_SOCKET = path.join(SOCKET_DIR, "mpv.sock");
+const MPV_LOG = path.join(SOCKET_DIR, "mpv.log");
 
 // Polaris server config
 const POLARIS_URL = "http://192.168.100.1:5050";
 const POLARIS_CREDS = { username: "admin", password: "admin" };
-const POLARIS_MOUNT = "Music"; // mount point name in Polaris
-
-// ─── State management ────────────────────────────────────────
-
-function loadState() {
-  try {
-    fs.mkdirSync(STATE_DIR, { recursive: true });
-    const raw = fs.readFileSync(STATE_FILE, "utf-8");
-    const state = JSON.parse(raw);
-    // Verify mpv is actually alive
-    if (state.pid) {
-      try {
-        process.kill(state.pid, 0);
-        // Also verify IPC works
-        try { fs.accessSync(IPC_SOCKET); } catch {
-          // Socket gone, mpv is dead
-          state.pid = null;
-        }
-      } catch {
-        state.pid = null;
-      }
-    }
-    // Ensure new fields with defaults
-    if (state.mpvBaseIndex === undefined) state.mpvBaseIndex = 0;
-    return state;
-  } catch {
-    return { queue: [], currentIndex: -1, volume: 80, pid: null, mpvBaseIndex: 0 };
-  }
-}
-
-function saveState(state) {
-  fs.mkdirSync(STATE_DIR, { recursive: true });
-  fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
-}
+const POLARIS_MOUNT = "Music";
 
 // ─── Music library search ────────────────────────────────────
 
@@ -98,7 +53,6 @@ const SIMP_TO_TRAD = {
 };
 
 function normChinese(s) {
-  // Convert simplified characters to traditional for matching
   let result = "";
   for (const ch of s) {
     result += SIMP_TO_TRAD[ch] || ch;
@@ -108,17 +62,13 @@ function normChinese(s) {
 
 function fuzzyMatch(queryStr, candidate) {
   if (!queryStr) return true;
-  // Try exact match first
   if (candidate.includes(queryStr)) return true;
-  // Try with simplified→traditional conversion
   const tradQuery = normChinese(queryStr);
   if (tradQuery !== queryStr && candidate.includes(tradQuery)) return true;
-  // Per-character fuzzy: all chars must appear in order
   let ci = 0;
   for (const qc of queryStr) {
     const found = candidate.indexOf(qc, ci);
     if (found === -1) {
-      // Try traditional version of this char
       const tc = SIMP_TO_TRAD[qc];
       if (tc && tc !== qc) {
         const found2 = candidate.indexOf(tc, ci);
@@ -136,14 +86,9 @@ function fuzzyMatch(queryStr, candidate) {
 
 function searchLibrary(query) {
   const results = [];
-
   function walk(dir) {
     let entries;
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
     for (const entry of entries) {
       if (entry.name.startsWith(".")) continue;
       const full = path.join(dir, entry.name);
@@ -165,7 +110,6 @@ function searchLibrary(query) {
       }
     }
   }
-
   walk(MUSIC_DIR);
   return results;
 }
@@ -173,20 +117,16 @@ function searchLibrary(query) {
 function searchScored(query) {
   const results = searchLibrary(query);
   if (query === "" || !query) return results;
-
   const q = query.toLowerCase();
   const tradQ = normChinese(q);
-  // Score: exact match > starts with > contains
   for (const r of results) {
     let score = 0;
-    // Use both original and traditional-normalized for matching
     const base = path.basename(r.filepath).replace(/\.[^.]+$/, "");
     const baseLower = base.toLowerCase();
     const baseTrad = normChinese(baseLower);
     const fullTrad = normChinese(r.relative.toLowerCase());
     const artistTrad = normChinese(r.artist.toLowerCase());
     const albumTrad = normChinese(r.album.toLowerCase());
-
     if (baseLower === q || baseTrad === tradQ) score += 100;
     else if (baseLower.startsWith(q) || baseTrad.startsWith(tradQ)) score += 80;
     else if (baseLower.includes(q) || baseTrad.includes(tradQ)) score += 50;
@@ -194,118 +134,19 @@ function searchScored(query) {
     if (r.album.toLowerCase().includes(q) || albumTrad.includes(tradQ)) score += 20;
     r.score = score;
   }
-
   results.sort((a, b) => b.score - a.score);
-  // If none of the lib results scored above 0 but we know they matched fuzzy,
-  // give them a minimum score of 1 so at least something shows up
   const hasScore = results.some((r) => r.score > 0);
-  if (!hasScore) {
-    results.forEach((r) => (r.score = 1));
-  }
+  if (!hasScore) results.forEach((r) => (r.score = 1));
   return results.filter((r) => r.score > 0);
 }
 
 // ─── mpv control ─────────────────────────────────────────────
 
-// Populate mpv's internal playlist with all remaining queue tracks
-// so mpv auto-advances when a song finishes. Uses JDC streaming URLs
-// when Polaris is reachable, falls back to local files.
-async function loadQueueToMpvPlaylist(state) {
-  if (state.currentIndex < 0 || state.queue.length === 0) return;
-
-  // Record the base index so syncCurrentIndexFromMpv can compute
-  // currentIndex = mpvBaseIndex + mpv_playlist_pos (idempotently)
-  state.mpvBaseIndex = state.currentIndex;
-  saveState(state);
-
-  let useStream = false;
-  let token = "";
-  try {
-    token = await polarisAuth();
-    useStream = !!token;
-  } catch { /* Polaris unreachable, use local files */ }
-
-  // Clear mpv's internal playlist
-  try { await sendMpvCommand(["playlist-clear"]); } catch { /* ignore */ }
-
-  // Batch-load tracks: reuse one socket for all append commands
-  const MAX_MPV_PLAYLIST = 100;
-  const end = Math.min(state.queue.length, state.currentIndex + MAX_MPV_PLAYLIST);
-
-  // Build all commands first
-  const cmds = [];
-  for (let i = state.currentIndex; i < end; i++) {
-    const track = state.queue[i];
-    let url;
-    if (useStream && track.relative) {
-      let p = track.relative;
-      const prefix = `${POLARIS_MOUNT}/`;
-      if (!p.startsWith(prefix)) p = prefix + p;
-      const parts = p.split("/").map((s) => encodeURIComponent(s));
-      url = `${POLARIS_URL}/api/audio/${parts.join("/")}?auth_token=${encodeURIComponent(token)}`;
-    } else {
-      url = track.filepath;
-    }
-    cmds.push(url);
-  }
-
-  // Send all loadfile commands in rapid succession on one connection
-  if (cmds.length > 0) {
-    await new Promise((resolve, reject) => {
-      const client = new net.Socket();
-      let complete = false;
-      const timeout = setTimeout(() => { client.destroy(); if (!complete) reject(); }, 15000);
-      client.connect(IPC_SOCKET, () => {
-        for (let i = 0; i < cmds.length; i++) {
-          const mode = i === 0 ? "replace" : "append";
-          const msg = JSON.stringify({ command: ["loadfile", cmds[i], mode], request_id: i }) + "\n";
-          client.write(msg);
-        }
-        // Don't wait for responses, just fire and forget
-        setTimeout(() => {
-          clearTimeout(timeout);
-          complete = true;
-          client.destroy();
-          resolve();
-        }, 500);
-      });
-      client.on("error", (err) => { clearTimeout(timeout); client.destroy(); reject(err); });
-    });
-    // Ensure mpv starts playing (playlist-clear resets pause state)
-    try { await sendMpvCommand(["set", "pause", false]); } catch { /* ignore */ }
-  }
-}
-
-// Sync state.currentIndex from mpv's playlist position (handles auto-advance)
-// Idempotent: uses mpvBaseIndex so repeated calls don't drift.
-async function syncCurrentIndexFromMpv(state) {
-  if (!state.pid) return state;
-  try {
-    const resp = await sendMpvCommand(["get_property", "playlist-pos"]);
-    if (resp && typeof resp.data === "number" && resp.data >= 0) {
-      const mpvIndex = resp.data;
-      // mpv playlist-pos is relative to the internal playlist that loadQueueToMpvPlaylist
-      // built starting at mpvBaseIndex. So currentIndex = mpvBaseIndex + mpvIndex.
-      const computed = (state.mpvBaseIndex ?? 0) + mpvIndex;
-      if (computed >= 0 && computed < state.queue.length) {
-        state.currentIndex = computed;
-      }
-      saveState(state);
-    }
-  } catch { /* mpv may be idle */ }
-  return state;
-}
-
 function sendMpvCommand(command) {
   return new Promise((resolve, reject) => {
     const client = new net.Socket();
     let collection = "";
-
-    const timeout = setTimeout(() => {
-      client.destroy();
-      reject(new Error("IPC connection timed out"));
-    }, 8000);
-
+    const timeout = setTimeout(() => { client.destroy(); reject(new Error("IPC timeout")); }, 8000);
     client.on("data", (data) => {
       collection += data.toString();
       try {
@@ -313,124 +154,147 @@ function sendMpvCommand(command) {
         clearTimeout(timeout);
         client.destroy();
         resolve(parsed);
-      } catch {
-        // partial data, wait for more
-      }
+      } catch { /* partial data */ }
     });
-
-    client.on("error", (err) => {
-      clearTimeout(timeout);
-      client.destroy();
-      reject(err);
-    });
-
+    client.on("error", (err) => { clearTimeout(timeout); client.destroy(); reject(err); });
     client.connect(IPC_SOCKET, () => {
-      const request_id = Math.floor(Math.random() * 1000000);
-      const msg = JSON.stringify({ command, request_id }) + "\n";
+      const msg = JSON.stringify({ command, request_id: Math.floor(Math.random() * 1000000) }) + "\n";
       client.write(msg);
     });
   });
 }
 
-function ensureMpv(state) {
-  // Check if mpv is already running and responsive
-  if (state.pid) {
-    try {
-      process.kill(state.pid, 0);
-      // Quick IPC check
-      if (fs.existsSync(IPC_SOCKET)) {
-        return new Promise((resolve) => {
-          const client = new net.Socket();
-          client.connect(IPC_SOCKET, () => {
-            const msg = JSON.stringify({ command: ["get_property", "volume"], request_id: 0 }) + "\n";
-            client.write(msg);
-            client.on("data", () => { client.destroy(); resolve(state); });
-            setTimeout(() => { client.destroy(); resolve(state); }, 300);
-          });
-          client.on("error", () => {
-            client.destroy();
-            state.pid = null;
-            saveState(state);
-            resolve(ensureMpv(state));
-          });
-        });
-      }
-    } catch { state.pid = null; }
-  }
+// Ensure mpv is running. No local state — just try IPC, restart if needed.
+async function ensureMpv() {
+  // Try existing socket
+  try {
+    await sendMpvCommand(["get_property", "volume"]);
+    return; // mpv is alive
+  } catch { /* mpv not reachable, start it */ }
 
-  // Kill any stale mpv and clean up
+  // Kill stale mpv
   try { require("child_process").execSync("pkill -f 'mpv.*polaris-player' 2>/dev/null", { stdio: "ignore" }); } catch {}
   try { fs.unlinkSync(IPC_SOCKET); } catch {}
 
-  // Start mpv as a properly detached daemon using nohup
-  // nohup ensures mpv survives the Node.js process exit
-  const logFile = path.join(STATE_DIR, "mpv.log");
-  const cmd = `nohup mpv --no-video --no-terminal --idle --input-ipc-server='${IPC_SOCKET}' --volume=${state.volume} > '${logFile}' 2>&1 & echo $!`;
+  // Ensure socket dir exists
+  fs.mkdirSync(SOCKET_DIR, { recursive: true });
+
+  // Start mpv as detached daemon
+  const cmd = `nohup mpv --no-video --no-terminal --idle --input-ipc-server='${IPC_SOCKET}' > '${MPV_LOG}' 2>&1 & echo $!`;
   try {
     const { execSync } = require("child_process");
-    const pidStr = execSync(cmd, { shell: "/bin/bash", encoding: "utf-8", timeout: 5000 }).toString().trim();
-    state.pid = parseInt(pidStr, 10);
-    saveState(state);
+    execSync(cmd, { shell: "/bin/bash", encoding: "utf-8", timeout: 5000 });
   } catch (err) {
     console.error(`ERROR: Failed to start mpv: ${err.message}`);
-    return state;
+    return;
   }
 
-  // Wait for IPC socket to be ready (up to 5s)
-  return new Promise((resolve) => {
-    let attempts = 0;
-    const check = () => {
-      attempts++;
-      try {
-        fs.accessSync(IPC_SOCKET, fs.constants.F_OK);
-        setTimeout(() => resolve(state), 500);
-      } catch {
-        if (attempts > 50) {
-          console.error("ERROR: mpv IPC socket not ready after 5s");
-          console.error(`  Check log: ${path.join(STATE_DIR, "mpv.log")}`);
-          resolve(state);
-        } else {
-          setTimeout(check, 100);
-        }
+  // Wait for IPC socket
+  for (let i = 0; i < 50; i++) {
+    try { fs.accessSync(IPC_SOCKET); return; } catch { await new Promise(r => setTimeout(r, 100)); }
+  }
+  console.error("ERROR: mpv IPC socket not ready after 5s");
+  console.error(`  Check log: ${MPV_LOG}`);
+}
+
+// Read mpv's entire playlist as an array of { filename, current }
+async function mpvPlaylistEntries() {
+  try {
+    const resp = await sendMpvCommand(["get_property", "playlist"]);
+    return (resp?.data || []).map((e, i) => ({
+      index: i,
+      filename: e.filename || "",
+      current: !!e.current,
+    }));
+  } catch { return []; }
+}
+
+// Decode a playable URL (JDC stream or local path) from a track's relative path
+async function resolveTrackUrl(relative) {
+  try {
+    const token = await polarisAuth();
+    let p = relative;
+    const prefix = `${POLARIS_MOUNT}/`;
+    if (!p.startsWith(prefix)) p = prefix + p;
+    const parts = p.split("/").map((s) => encodeURIComponent(s));
+    return `${POLARIS_URL}/api/audio/${parts.join("/")}?auth_token=${encodeURIComponent(token)}`;
+  } catch {
+    // Polaris unreachable, use local file
+    return path.join(MUSIC_DIR, relative);
+  }
+}
+
+// Decode artist/album/title from a filename (JDC URL or local path)
+function parseTrackInfo(filename) {
+  if (filename.startsWith("http://192.168.100.1:5050")) {
+    try {
+      const u = new URL(filename);
+      const segments = u.pathname.split("/").filter(Boolean);
+      const audioIdx = segments.indexOf("audio");
+      if (audioIdx >= 0 && segments.length >= audioIdx + 4) {
+        const segs = segments.slice(audioIdx + 2).map(s => decodeURIComponent(s));
+        const filePart = segs.pop();
+        const relPath = segs.join("/");
+        const slashIdx = relPath.lastIndexOf("/");
+        const artist = slashIdx >= 0 ? relPath.slice(0, slashIdx) : relPath;
+        const album = slashIdx >= 0 ? relPath.slice(slashIdx + 1) : "Unknown";
+        const title = filePart.replace(/^\d+\.\s*/, "").replace(/\.[^.]+$/, "");
+        return { artist, album, title };
       }
-    };
-    check();
-  });
+    } catch { /* fall through */ }
+  } else if (filename && !filename.startsWith("http")) {
+    const relative = filename.startsWith(MUSIC_DIR) ? filename.slice(MUSIC_DIR.length + 1) : filename;
+    const parts = relative.split("/");
+    const artist = parts.length >= 2 ? parts[0] : "Unknown";
+    const album = parts.length >= 3 ? parts[1] : "Unknown";
+    const file = parts[parts.length - 1];
+    const title = file.replace(/^\d+\.\s*/, "").replace(/\.[^.]+$/, "");
+    return { artist, album, title };
+  }
+  return null;
+}
+
+// Get currently playing info from mpv directly
+async function mpvNowPlaying() {
+  try {
+    const pathResp = await sendMpvCommand(["get_property", "path"]);
+    const titleResp = await sendMpvCommand(["get_property", "media-title"]);
+    const url = pathResp?.data || "";
+    const mediaTitle = titleResp?.data || "";
+
+    const info = parseTrackInfo(url);
+    if (info) {
+      // Use media-title if it's more accurate (has ID3 tags), otherwise filename-derived
+      if (mediaTitle && mediaTitle !== path.basename(url).replace(/\.[^.]+$/, "")) {
+        info.title = mediaTitle;
+      }
+      return info;
+    }
+    return { artist: "", album: "", title: mediaTitle || "Unknown" };
+  } catch {
+    return null;
+  }
 }
 
 // ─── Commands ────────────────────────────────────────────────
 
-// Read macOS system volume
 function getMacosVolume() {
   try {
     const { execSync } = require("child_process");
-    const vol = execSync("osascript -e 'output volume of (get volume settings)'", { encoding: "utf-8", timeout: 3000 }).trim();
-    return vol || "?";
-  } catch {
-    return "?";
-  }
+    return execSync("osascript -e 'output volume of (get volume settings)'", { encoding: "utf-8", timeout: 3000 }).trim();
+  } catch { return "?"; }
 }
 
 async function cmdPlay(query) {
   const results = searchScored(query);
-  if (results.length === 0) {
-    console.log(`No results for "${query}"`);
-    return;
-  }
+  if (results.length === 0) { console.log(`No results for "${query}"`); return; }
 
   const best = results[0];
-  let state = loadState();
-
-  state = await ensureMpv(state);
-
-  // Insert into queue
-  state.queue = [best, ...state.queue.filter((t) => t.filepath !== best.filepath)];
-  state.currentIndex = 0;
-  saveState(state);
+  await ensureMpv();
 
   try {
-    await sendMpvCommand(["loadfile", best.filepath, "replace"]);
-    await loadQueueToMpvPlaylist(state);
+    const url = await resolveTrackUrl(best.relative);
+    await sendMpvCommand(["loadfile", url, "replace"]);
     console.log(`Playing: ${best.artist} — ${best.title}`);
     if (results.length > 1) {
       console.log(`  (${results.length - 1} more matches, use queue or list to browse)`);
@@ -441,281 +305,171 @@ async function cmdPlay(query) {
 }
 
 async function cmdPause() {
+  await ensureMpv();
   try {
-    const state = loadState();
-    if (!state.pid) { console.log("Nothing playing"); return; }
-    await ensureMpv(state);
     await sendMpvCommand(["set", "pause", true]);
     console.log("Paused");
-  } catch (err) {
-    console.error(`Failed to pause: ${err.message}`);
-  }
+  } catch (err) { console.error(`Failed to pause: ${err.message}`); }
 }
 
 async function cmdResume() {
+  await ensureMpv();
   try {
-    const state = loadState();
-    if (!state.pid) { console.log("Nothing playing"); return; }
-    await ensureMpv(state);
     await sendMpvCommand(["set", "pause", false]);
     console.log("Resumed");
-  } catch (err) {
-    console.error(`Failed to resume: ${err.message}`);
-  }
+  } catch (err) { console.error(`Failed to resume: ${err.message}`); }
 }
 
 async function cmdToggle() {
+  await ensureMpv();
   try {
-    const state = loadState();
-    if (!state.pid) { console.log("Nothing playing"); return; }
-    await ensureMpv(state);
     const resp = await sendMpvCommand(["cycle", "pause"]);
-    const paused = resp?.data === "yes";
-    console.log(paused ? "Paused" : "Resumed");
-  } catch (err) {
-    console.error(`Failed to toggle: ${err.message}`);
-  }
+    console.log(resp?.data === "yes" ? "Paused" : "Resumed");
+  } catch (err) { console.error(`Failed to toggle: ${err.message}`); }
 }
 
 async function cmdStop() {
   try {
-    const state = loadState();
-    if (state.pid) {
-      try {
-        await sendMpvCommand(["stop"]);
-      } catch {}
-      try { process.kill(state.pid); } catch {}
-    }
-    state.queue = [];
-    state.currentIndex = -1;
-    state.pid = null;
-    saveState(state);
+    await sendMpvCommand(["stop"]);
+    await sendMpvCommand(["playlist-clear"]);
     console.log("Stopped");
-  } catch (err) {
-    console.error(`Failed to stop: ${err.message}`);
-  }
+  } catch (err) { console.error(`Failed to stop: ${err.message}`); }
 }
 
 async function cmdNext() {
-  let state = loadState();
-  state = await syncCurrentIndexFromMpv(state);
-  if (state.currentIndex < state.queue.length - 1) {
-    state.currentIndex++;
-    saveState(state);
-    state = await ensureMpv(state);
-    // loadQueueToMpvPlaylist handles loading current + appending rest
-    await loadQueueToMpvPlaylist(state);
-    const track = state.queue[state.currentIndex];
-    console.log(`Playing: ${track.artist} — ${track.title}`);
-  } else {
-    console.log("No more tracks in queue");
-  }
+  await ensureMpv();
+  try {
+    await sendMpvCommand(["playlist-next"]);
+    const np = await mpvNowPlaying();
+    if (np && np.title) console.log(`Now playing: ${np.artist ? np.artist + " — " : ""}${np.title}`);
+  } catch (err) { console.error(`Failed: ${err.message}`); }
 }
 
 async function cmdPrev() {
-  let state = loadState();
-  state = await syncCurrentIndexFromMpv(state);
-  if (state.currentIndex > 0) {
-    state.currentIndex--;
-    saveState(state);
-    state = await ensureMpv(state);
-    await loadQueueToMpvPlaylist(state);
-    const track = state.queue[state.currentIndex];
-    console.log(`Playing: ${track.artist} — ${track.title}`);
-  } else {
-    console.log("No previous track");
-  }
-}
-
-async function cmdQueueJump(query) {
-  if (!query) { console.log("Usage: player jump <query>"); return; }
-  let state = loadState();
-  if (state.queue.length === 0) { console.log("Queue is empty"); return; }
-
-  // Search queue for matching tracks
-  const q = query.toLowerCase();
-  const matches = [];
-  state.queue.forEach((t, i) => {
-    const label = `${t.artist} — ${t.title} ${t.album}`.toLowerCase();
-    if (fuzzyMatch(q, label)) {
-      matches.push({ index: i, track: t });
-    }
-  });
-
-  if (matches.length === 0) {
-    console.log(`No match for "${query}" in current queue`);
-    return;
-  }
-
-  // Pick the first match (skip current playing if possible)
-  const currentIx = state.currentIndex;
-  let match = matches[0];
-  if (matches.length > 1 && match.index === currentIx) {
-    match = matches[1]; // skip to next if current matches too
-  }
-
-  state.currentIndex = match.index;
-  saveState(state);
-
-  state = await ensureMpv(state);
+  await ensureMpv();
   try {
-    await sendMpvCommand(["loadfile", match.track.filepath, "replace"]);
-    await loadQueueToMpvPlaylist(state);
-    console.log(`Jumped to [${match.index + 1}/${state.queue.length}]: ${match.track.artist} — ${match.track.title}`);
-    if (matches.length > 1) {
-      console.log(`  (${matches.length - 1} more matches in queue)`);
-    }
-  } catch (err) {
-    console.error(`Failed to jump: ${err.message}`);
-  }
+    const resp = await sendMpvCommand(["playlist-prev"]);
+    const np = await mpvNowPlaying();
+    if (np && np.title) console.log(`Now playing: ${np.artist ? np.artist + " — " : ""}${np.title}`);
+  } catch (err) { console.error(`Failed: ${err.message}`); }
 }
 
 async function cmdQueue(args) {
-  const state = loadState();
-
   if (args.length === 0) {
-    // Show queue
-    console.log(`\nQueue (${state.queue.length} tracks):\n`);
-    state.queue.forEach((t, i) => {
-      const playing = i === state.currentIndex ? " ▶" : "  ";
-      console.log(`  ${playing} ${i + 1}. ${t.artist} — ${t.title}`);
-    });
-    if (state.currentIndex < 0) console.log("  (empty)");
+    // Show queue from mpv's playlist
+    const entries = await mpvPlaylistEntries();
+    if (entries.length === 0) { console.log("Queue is empty"); return; }
+    const currentIx = entries.findIndex(e => e.current);
+    console.log(`\nQueue (${entries.length} tracks):\n`);
+    for (const e of entries) {
+      const info = parseTrackInfo(e.filename);
+      const label = info ? `${info.artist} — ${info.title}` : path.basename(e.filename).replace(/\.[^.]+$/, "");
+      const mark = e.current ? " ▶" : "  ";
+      console.log(`  ${mark} ${e.index + 1}. ${label}`);
+    }
     return;
   }
 
   // Add to queue
   const query = args.join(" ");
   const results = searchScored(query);
-  if (results.length === 0) {
-    console.log(`No results for "${query}"`);
-    return;
-  }
-  const best = results[0];
+  if (results.length === 0) { console.log(`No results for "${query}"`); return; }
 
-  // Avoid duplicates in queue
-  if (!state.queue.some((t) => t.filepath === best.filepath)) {
-    state.queue.push(best);
-  }
-  saveState(state);
-  if (state.currentIndex === -1) {
-    // Nothing currently playing, start this
-    await cmdPlay(query);
-  } else {
+  const best = results[0];
+  await ensureMpv();
+  try {
+    const url = await resolveTrackUrl(best.relative);
+    await sendMpvCommand(["loadfile", url, "append"]);
     console.log(`Queued: ${best.artist} — ${best.title}`);
+  } catch (err) {
+    console.error(`Failed to queue: ${err.message}`);
   }
 }
 
 async function cmdList() {
-  const state = loadState();
-  console.log(`\nQueue (${state.queue.length} tracks):\n`);
-  state.queue.forEach((t, i) => {
-    const playing = i === state.currentIndex ? " ▶" : "  ";
-    console.log(`  ${playing} ${i + 1}. ${t.artist} — ${t.title} [${t.album}]`);
-  });
-  if (state.queue.length === 0) console.log("  (empty)");
+  const entries = await mpvPlaylistEntries();
+  if (entries.length === 0) { console.log("\nQueue is empty\n"); return; }
+  const currentIx = entries.findIndex(e => e.current);
+  console.log(`\nQueue (${entries.length} tracks):\n`);
+  for (const e of entries) {
+    const info = parseTrackInfo(e.filename);
+    const label = info ? `${info.artist} — ${info.title}` : path.basename(e.filename).replace(/\.[^.]+$/, "");
+    const mark = e.current ? " ▶" : "  ";
+    console.log(`  ${mark} ${e.index + 1}. ${label} [${info ? info.album : ""}]`);
+  }
 }
 
-// Decode currently playing info from mpv directly (not from state.json)
-async function mpvNowPlaying() {
-  try {
-    // Get the streaming URL or file path from mpv
-    const pathResp = await sendMpvCommand(["get_property", "path"]);
-    const titleResp = await sendMpvCommand(["get_property", "media-title"]);
-    const path = pathResp?.data || "";
-    const title = titleResp?.data || "";
+async function cmdQueueJump(query) {
+  if (!query) { console.log("Usage: player jump <query>"); return; }
 
-    if (path.startsWith("http://192.168.100.1:5050")) {
-      // Polaris streaming URL — decode Artist/Album/Title from path
-      try {
-        const u = new URL(path);
-        const segments = u.pathname.split("/").filter(Boolean);
-        // /api/audio/Music/Artist/Album/N. Title.ext
-        const audioIdx = segments.indexOf("audio");
-        if (audioIdx >= 0 && segments.length >= audioIdx + 4) {
-          const segs = segments.slice(audioIdx + 2).map(s => decodeURIComponent(s));
-          // Last segment is "N. Title.ext"
-          const filePart = segs.pop();
-          const relPath = segs.join("/"); // Artist/Album
-          const slashIdx = relPath.lastIndexOf("/");
-          const artist = slashIdx >= 0 ? relPath.slice(0, slashIdx) : relPath;
-          const album = slashIdx >= 0 ? relPath.slice(slashIdx + 1) : "Unknown";
-          const trackTitle = filePart.replace(/^\d+\.\s*/, "").replace(/\.[^.]+$/, "");
-          return { artist, album, title: trackTitle };
-        }
-      } catch { /* fall through */ }
-    } else if (path && !path.startsWith("http")) {
-      // Local file path
-      const relative = path.startsWith(MUSIC_DIR) ? path.slice(MUSIC_DIR.length + 1) : path;
-      const parts = relative.split("/");
-      const artist = parts.length >= 2 ? parts[0] : "Unknown";
-      const album = parts.length >= 3 ? parts[1] : "Unknown";
-      const file = parts[parts.length - 1];
-      const trackTitle = file.replace(/^\d+\.\s*/, "").replace(/\.[^.]+$/, "");
-      return { artist, album: title || trackTitle, title: trackTitle };
+  const entries = await mpvPlaylistEntries();
+  if (entries.length === 0) { console.log("Queue is empty"); return; }
+
+  const q = query.toLowerCase();
+  const matches = [];
+  for (const e of entries) {
+    const info = parseTrackInfo(e.filename);
+    const label = info ? `${info.artist} — ${info.title} ${info.album}`.toLowerCase() : path.basename(e.filename).toLowerCase();
+    if (fuzzyMatch(q, label)) {
+      matches.push({ index: e.index, info });
     }
-
-    // Fallback: just use media-title
-    return { artist: "", album: "", title: title || "Unknown" };
-  } catch {
-    return null;
   }
+
+  if (matches.length === 0) { console.log(`No match for "${query}" in current queue`); return; }
+
+  const currentIx = entries.findIndex(e => e.current);
+  let match = matches[0];
+  if (matches.length > 1 && match.index === currentIx) match = matches[1];
+
+  await ensureMpv();
+  try {
+    await sendMpvCommand(["set", "playlist-pos", match.index]);
+    const np = await mpvNowPlaying();
+    const label = match.info ? `${match.info.artist} — ${match.info.title}` : "track";
+    console.log(`Jumped to [${match.index + 1}/${entries.length}]: ${label}`);
+    if (matches.length > 1) console.log(`  (${matches.length - 1} more matches)`);
+  } catch (err) { console.error(`Failed to jump: ${err.message}`); }
 }
 
 async function cmdStatus() {
-  const state = await syncCurrentIndexFromMpv(loadState());
   const { execSync } = require("child_process");
   let sysVol = "?";
+  try { sysVol = execSync("osascript -e 'output volume of (get volume settings)'", { encoding: "utf-8", timeout: 3000 }).trim(); } catch {}
+
+  let mpvVol = "?";
   try {
-    const out = execSync(`osascript -e 'output volume of (get volume settings)'`, { encoding: "utf-8", timeout: 3000 }).trim();
-    sysVol = out;
-  } catch { /* ignore */ }
-  // Show real volumes
-  let mpvVol = state.volume;
-  if (state.pid) {
-    try {
-      const resp = await sendMpvCommand(["get_property", "volume"]);
-      if (resp && typeof resp.data === 'number') mpvVol = Math.round(resp.data);
-    } catch { /* use saved state */ }
-  }
+    const resp = await sendMpvCommand(["get_property", "volume"]);
+    if (resp && typeof resp.data === "number") mpvVol = Math.round(resp.data);
+  } catch {}
   console.log(`Volume: mpv ${mpvVol}%  |  macOS ${sysVol}%`);
-  if (state.pid) {
+
+  try {
+    // If we can IPC, mpv is running
+    const pauseResp = await sendMpvCommand(["get_property", "pause"]);
     console.log("mpv: running");
-    try {
-      const resp = await sendMpvCommand(["get_property", "pause"]);
-      const paused = resp?.data === true;
-      console.log(`State: ${paused ? "⏸ Paused" : "▶ Playing"}`);
-      const timeResp = await sendMpvCommand(["get_property", "time-pos"]);
-      const durResp = await sendMpvCommand(["get_property", "duration"]);
-      const pos = Math.floor(timeResp?.data || 0);
-      const dur = Math.floor(durResp?.data || 0);
-      if (dur > 0) {
-        const fmt = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-        const pct = Math.round((pos / dur) * 100);
-        console.log(`Progress: ${fmt(pos)} / ${fmt(dur)} (${pct}%)`);
-      }
-    } catch {
-      console.log("(unable to query mpv)");
+    const paused = pauseResp?.data === true;
+    console.log(`State: ${paused ? "⏸ Paused" : "▶ Playing"}`);
+
+    const timeResp = await sendMpvCommand(["get_property", "time-pos"]);
+    const durResp = await sendMpvCommand(["get_property", "duration"]);
+    const pos = Math.floor(timeResp?.data || 0);
+    const dur = Math.floor(durResp?.data || 0);
+    if (dur > 0) {
+      const fmt = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+      console.log(`Progress: ${fmt(pos)} / ${fmt(dur)} (${Math.round((pos / dur) * 100)}%)`);
     }
-  } else {
+  } catch {
     console.log("mpv: not running");
   }
-  // Read now-playing from mpv directly, not from state.json
+
   const np = await mpvNowPlaying();
   if (np && np.title) {
-    if (np.artist) {
-      console.log(`Now playing: ${np.artist} — ${np.title}`);
-    } else {
-      console.log(`Now playing: ${np.title}`);
-    }
-  } else if (state.currentIndex >= 0 && state.queue[state.currentIndex]) {
-    const t = state.queue[state.currentIndex];
-    console.log(`Now playing: ${t.artist} — ${t.title} (from state)`);
+    if (np.artist) console.log(`Now playing: ${np.artist} — ${np.title}`);
+    else console.log(`Now playing: ${np.title}`);
   }
 }
 
 async function cmdNow() {
-  const state = await syncCurrentIndexFromMpv(loadState());
   const np = await mpvNowPlaying();
   if (np && np.title) {
     if (np.artist) {
@@ -724,11 +478,6 @@ async function cmdNow() {
     } else {
       console.log(`▶ ${np.title}`);
     }
-  } else if (state.currentIndex >= 0 && state.queue[state.currentIndex]) {
-    const t = state.queue[state.currentIndex];
-    console.log(`▶ ${t.artist} — ${t.title}`);
-    console.log(`   Album: ${t.album}`);
-    console.log(`   File:  ${t.relative}`);
   } else {
     console.log("Nothing playing");
     return;
@@ -748,25 +497,23 @@ async function cmdNow() {
 async function cmdVolume(args) {
   const level = parseInt(args[0], 10);
   if (isNaN(level) || level < 0 || level > 100) {
-    console.log("Usage: player volume <0-100>");
+    // Show current volume
+    let mpvVol = "?";
+    try {
+      const resp = await sendMpvCommand(["get_property", "volume"]);
+      if (resp && typeof resp.data === "number") mpvVol = Math.round(resp.data);
+    } catch {}
+    const sysVol = getMacosVolume();
+    console.log(`mpv: ${mpvVol}%  |  macOS: ${sysVol}%`);
     return;
   }
-  const state = loadState();
-  state.volume = level;
-  saveState(state);
   try {
-    // Only send to mpv if it's running — don't call ensureMpv (it restarts mpv!)
-    if (state.pid) {
-      try {
-        await sendMpvCommand(["set", "volume", String(level)]);
-      } catch { /* mpv not available */ }
-    }
-  } catch { /* ignore */ }
-  const sysVol = await getMacosVolume();
-  console.log(`mpv: ${level}%  |  macOS: ${sysVol}%`);
+    await sendMpvCommand(["set", "volume", String(level)]);
+    const sysVol = getMacosVolume();
+    console.log(`mpv: ${level}%  |  macOS: ${sysVol}%`);
+  } catch { /* mpv not running */ }
 }
 
-// System volume (macOS)
 async function cmdSysvol(level) {
   if (isNaN(level) || level < 0 || level > 100) {
     console.log("Usage: player sysvol <0-100>");
@@ -776,39 +523,27 @@ async function cmdSysvol(level) {
   try {
     execSync(`osascript -e 'set volume output volume ${level}'`, { timeout: 3000 });
     console.log(`macOS system volume: ${level}%`);
-  } catch (err) {
-    console.error(`Failed to set system volume: ${err.message}`);
-  }
+  } catch (err) { console.error(`Failed to set system volume: ${err.message}`); }
 }
 
 async function cmdSeek(args) {
   const amount = args[0];
   if (!amount) { console.log("Usage: player seek <+/-seconds>"); return; }
   try {
-    const state = loadState();
-    if (!state.pid) { console.log("Nothing playing"); return; }
-    await ensureMpv(state);
-    const resp = await sendMpvCommand(["seek", amount, "relative"]);
+    await sendMpvCommand(["seek", amount, "relative"]);
     console.log(`Seek ${amount}s`);
-  } catch (err) {
-    console.error(`Failed to seek: ${err.message}`);
-  }
+  } catch (err) { console.error(`Failed to seek: ${err.message}`); }
 }
 
 async function cmdSearch(query) {
   const results = searchScored(query);
-  if (results.length === 0) {
-    console.log(`No results for "${query}"`);
-    return;
-  }
+  if (results.length === 0) { console.log(`No results for "${query}"`); return; }
   console.log(`\nSearch results for "${query}" (${results.length}):\n`);
   results.slice(0, 20).forEach((r, i) => {
     console.log(`  ${i + 1}. ${r.artist} — ${r.title}`);
     console.log(`      ${r.album}  [${r.ext}]`);
   });
-  if (results.length > 20) {
-    console.log(`  ... and ${results.length - 20} more`);
-  }
+  if (results.length > 20) console.log(`  ... and ${results.length - 20} more`);
 }
 
 function cmdHelp() {
@@ -826,7 +561,7 @@ Playback:
   next                Next track
   prev                Previous track
 
-Queue:
+Queue (mpv's playlist):
   queue [<query>]     Show queue, or add track(s) to queue
   list                List queued tracks
   shuffle             Randomize queue order
@@ -841,17 +576,17 @@ Info:
   status              Show playback status
   now                 Show current track info
   search <query>      Search music library
-  volume <0-100>      Set mpv volume
+  volume [<0-100>]    Show or set mpv volume
   sysvol <0-100>      Set macOS system volume
   seek <+/-seconds>   Seek forward/backward
   help                Show this help
 
 Examples:
   player playlist          Load fav playlist and start playing
-  player playlist jazz     Load a playlist named \"jazz\"
-  player shuffle           Randomize current queue order
-  player pl-add 消愁       Add \"消愁\" to the current playlist
-  player pl-remove 消愁    Remove \"消愁\" from the playlist
+  player playlist jazz     Load a playlist named "jazz"
+  player shuffle           Randomize current queue
+  player pl-add 消愁       Add "消愁" to the current playlist
+  player pl-remove 消愁    Remove "消愁" from the playlist
   player play 漠河舞厅
   player volume 60
 `);
@@ -860,7 +595,6 @@ Examples:
 // ─── Polaris API ────────────────────────────────────────────
 
 const http = require("http");
-
 let _polarisToken = null;
 
 function polarisFetch(url, options = {}) {
@@ -868,13 +602,7 @@ function polarisFetch(url, options = {}) {
     const urlObj = new URL(url);
     const { method = "GET", headers = {}, body } = options;
     const req = http.request(
-      {
-        hostname: urlObj.hostname,
-        port: urlObj.port || 80,
-        path: urlObj.pathname + urlObj.search,
-        method,
-        headers,
-      },
+      { hostname: urlObj.hostname, port: urlObj.port || 80, path: urlObj.pathname + urlObj.search, method, headers },
       (res) => {
         let data = "";
         res.on("data", (chunk) => (data += chunk));
@@ -906,10 +634,7 @@ async function polarisGet(path) {
   const resp = await polarisFetch(`${POLARIS_URL}${path}${separator}auth_token=${encodeURIComponent(token)}`, {
     headers: { "Accept-Version": "8" },
   });
-  if (resp.status !== 200) {
-    const txt = resp.body?.substring(0, 200);
-    throw new Error(`Polaris GET ${path} failed: ${resp.status} ${txt}`);
-  }
+  if (resp.status !== 200) throw new Error(`Polaris GET ${path} failed: ${resp.status} ${(resp.body || "").substring(0, 200)}`);
   return resp.json();
 }
 
@@ -918,38 +643,17 @@ async function polarisPut(path, body) {
   const separator = path.includes("?") ? "&" : "?";
   const resp = await polarisFetch(`${POLARIS_URL}${path}${separator}auth_token=${encodeURIComponent(token)}`, {
     method: "PUT",
-    headers: {
-      "Accept-Version": "8",
-      "Content-Type": "application/json",
-    },
+    headers: { "Accept-Version": "8", "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (resp.status !== 200 && resp.status !== 204) {
-    throw new Error(`Polaris PUT ${path} failed: ${resp.status}`);
-  }
+  if (resp.status !== 200 && resp.status !== 204) throw new Error(`Polaris PUT ${path} failed: ${resp.status}`);
 }
 
 function polarisPathToLocal(polarisPath) {
   const prefix = `${POLARIS_MOUNT}/`;
-  if (polarisPath.startsWith(prefix)) {
-    return path.join(MUSIC_DIR, polarisPath.slice(prefix.length));
-  }
-  return path.join(MUSIC_DIR, polarisPath);
-}
-
-// Convert a track's Polaris path to a streaming URL for mpv
-function polarisStreamUrl(relative) {
-  // Ensure path starts with "Music/"
-  let streamPath = relative;
-  const prefix = `${POLARIS_MOUNT}/`;
-  if (!streamPath.startsWith(prefix)) {
-    streamPath = prefix + streamPath;
-  }
-  // Encode each path component to handle Chinese characters and special chars
-  const parts = streamPath.split("/").map((p) => encodeURIComponent(p));
-  const encoded = parts.join("/");
-  // Token is cached; if it fails mpv will report error
-  return `${POLARIS_URL}/api/audio/${encoded}?auth_token=${encodeURIComponent(_polarisToken || "")}`;
+  return polarisPath.startsWith(prefix)
+    ? path.join(MUSIC_DIR, polarisPath.slice(prefix.length))
+    : path.join(MUSIC_DIR, polarisPath);
 }
 
 // ─── Playlist commands ───────────────────────────────────────
@@ -958,44 +662,32 @@ async function cmdPlaylist(name) {
   const playlistName = name || "fav";
   try {
     const data = await polarisGet(`/api/playlist/${encodeURIComponent(playlistName)}`);
-    const songs = data.songs || {};
-    const plPaths = songs.paths || [];
+    const plPaths = (data.songs || {}).paths || [];
 
-    if (plPaths.length === 0) {
-        console.log(`Playlist "${playlistName}" is empty`);
-        return;
-      }
+    if (plPaths.length === 0) { console.log(`Playlist "${playlistName}" is empty`); return; }
 
-      const localTracks = [];
-      for (const p of plPaths) {
+    await ensureMpv();
+    await sendMpvCommand(["playlist-clear"]);
+
+    // Load all tracks into mpv's playlist (batch)
+    let loaded = 0;
+    for (let i = 0; i < plPaths.length; i++) {
+      try {
+        const p = plPaths[i];
         const localPath = polarisPathToLocal(p);
-        const parts = p.split(path.sep);
-        const artist = parts.length >= 2 ? parts[1] : "Unknown";
-        const album = parts.length >= 3 ? parts[2] : "Unknown";
-        const file = parts[parts.length - 1];
-        const title = file.replace(/^\d+\.\s*/, "").replace(/\.[^.]+$/, "");
-        localTracks.push({ filepath: localPath, relative: p, artist, album, title, ext: path.extname(localPath) });
-      }
-
-    if (localTracks.length === 0) {
-      console.log(`No playable files found from playlist "${playlistName}"`);
-      return;
+        const url = await resolveTrackUrl(p);
+        const mode = i === 0 ? "replace" : "append";
+        await sendMpvCommand(["loadfile", url, mode]);
+        loaded++;
+      } catch { /* skip failed tracks */ }
     }
 
-    let state = loadState();
-    state.queue = localTracks;
-    state.currentIndex = 0;
-    saveState(state);
+    console.log(`Loaded playlist "${playlistName}" (${loaded}/${plPaths.length} tracks)`);
 
-    console.log(`Loaded playlist "${playlistName}" (${localTracks.length} tracks)`);
-
-    state = await ensureMpv(state);
-    try {
-      await sendMpvCommand(["loadfile", localTracks[0].filepath, "replace"]);
-      await loadQueueToMpvPlaylist(state);
-      console.log(`Playing: ${localTracks[0].artist} — ${localTracks[0].title}`);
-    } catch (err) {
-      console.error(`Failed to play: ${err.message}`);
+    const np = await mpvNowPlaying();
+    if (np && np.title) {
+      if (np.artist) console.log(`Playing: ${np.artist} — ${np.title}`);
+      else console.log(`Playing: ${np.title}`);
     }
   } catch (err) {
     console.error(`Failed to load playlist: ${err.message}`);
@@ -1003,43 +695,21 @@ async function cmdPlaylist(name) {
 }
 
 async function cmdShuffle() {
-  const state = loadState();
-  if (state.queue.length === 0) {
-    console.log("Queue is empty");
-    return;
+  await ensureMpv();
+  try {
+    await sendMpvCommand(["playlist-shuffle"]);
+    const entries = await mpvPlaylistEntries();
+    console.log(`Shuffled ${entries.length} tracks`);
+  } catch (err) {
+    console.error(`Failed to shuffle: ${err.message}`);
   }
-
-  const current = state.currentIndex >= 0 ? state.queue[state.currentIndex] : null;
-  const rest = state.queue.filter((_, i) => i !== state.currentIndex);
-
-  for (let i = rest.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [rest[i], rest[j]] = [rest[j], rest[i]];
-  }
-
-  if (current) {
-    state.queue = [current, ...rest];
-    state.currentIndex = 0;
-  } else {
-    state.queue = rest;
-    state.currentIndex = -1;
-  }
-  saveState(state);
-  // Reload mpv's internal playlist with shuffled queue
-  if (state.pid && state.currentIndex >= 0) {
-    try { await loadQueueToMpvPlaylist(state); } catch { /* ignore */ }
-  }
-  console.log(`Shuffled ${state.queue.length} tracks`);
 }
 
 async function cmdPlaylistAdd(query) {
   if (!query) { console.log("Usage: player pl-add <query>"); return; }
-
   const results = searchScored(query);
-  if (results.length === 0) {
-    console.log(`No results for "${query}"`);
-    return;
-  }
+  if (results.length === 0) { console.log(`No results for "${query}"`); return; }
+
   const best = results[0];
   const polarisPath = `${POLARIS_MOUNT}/${path.relative(MUSIC_DIR, best.filepath)}`;
 
@@ -1050,14 +720,11 @@ async function cmdPlaylistAdd(query) {
       const data = await polarisGet(`/api/playlist/${playlistName}`);
       currentTracks = (data.songs || {}).paths || [];
     } catch {}
-
     if (currentTracks.includes(polarisPath)) {
       console.log(`Already in playlist: ${best.artist} — ${best.title}`);
       return;
     }
-
-    const newTracks = [...currentTracks, polarisPath];
-    await polarisPut(`/api/playlist/${playlistName}`, { tracks: newTracks });
+    await polarisPut(`/api/playlist/${playlistName}`, { tracks: [...currentTracks, polarisPath] });
     console.log(`Added to playlist: ${best.artist} — ${best.title}`);
   } catch (err) {
     console.error(`Failed to add to playlist: ${err.message}`);
@@ -1066,22 +733,14 @@ async function cmdPlaylistAdd(query) {
 
 async function cmdPlaylistRemove(query) {
   if (!query) { console.log("Usage: player pl-remove <query>"); return; }
-
   try {
     const playlistName = "fav";
     const data = await polarisGet(`/api/playlist/${playlistName}`);
     const plPaths = (data.songs || {}).paths || [];
-
     const matching = plPaths.filter((p) => p.toLowerCase().includes(query.toLowerCase()));
-
-    if (matching.length === 0) {
-      console.log(`No matching tracks for "${query}" in playlist`);
-      return;
-    }
-
+    if (matching.length === 0) { console.log(`No matching tracks for "${query}" in playlist`); return; }
     const newTracks = plPaths.filter((p) => !matching.includes(p));
     await polarisPut(`/api/playlist/${playlistName}`, { tracks: newTracks });
-
     matching.forEach((p) => {
       const filename = path.basename(p).replace(/\.[^.]+$/, "");
       console.log(`Removed: ${filename}`);
@@ -1101,7 +760,6 @@ async function main() {
 
   if (!fs.existsSync(MUSIC_DIR)) {
     console.error(`Music directory not found: ${MUSIC_DIR}`);
-    console.error("Set MUSIC_DIR in the script or symlink your music.");
     process.exit(1);
   }
 
