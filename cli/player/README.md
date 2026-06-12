@@ -66,5 +66,5 @@ player help
 - **Audio backend**: `mpv --no-video` running as daemon, controlled via Unix IPC socket
 - **Music source**: `~/Music/polaris/` (Artist/Album/ structure)
 - **Playlist source**: Polaris server at `http://192.168.100.1:5050`
-- **State**: `~/.polaris/player/state.json`
+- **State**: Everything from mpv IPC or Polaris API — no local state cache
 - **Format support**: mp3, m4a, flac, wav, ogg
