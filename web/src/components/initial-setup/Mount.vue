@@ -1,7 +1,7 @@
 <template>
   <Step
     title="Music Sources"
-    description="Please indicate which directory Polaris should scan to populate your music collection."
+    description="Please indicate which directory Vox should scan to populate your music collection."
   >
     <form class="flex flex-col gap-4" @submit.prevent="proceed">
       <div class="flex items-stretch gap-6">

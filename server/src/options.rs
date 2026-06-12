@@ -94,7 +94,7 @@ fn get_options() -> getopts::Options {
 	options.optflag(
 		"f",
 		"foreground",
-		"run polaris in the foreground instead of daemonizing",
+		"run vox in the foreground instead of daemonizing",
 	);
 
 	options.optopt(

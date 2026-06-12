@@ -3,7 +3,7 @@
 import defaultTheme from 'tailwindcss/defaultTheme';
 
 export default {
-  darkMode: ['selector', '[data-polaris-theme-polarity="dark"]'],
+  darkMode: ['selector', '[data-vox-theme-polarity="dark"]'],
   content: ['./index.html', './src/**/*.{vue,js,ts,jsx,tsx}'],
   theme: {
     extend: {

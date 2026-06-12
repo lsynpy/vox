@@ -1,6 +1,6 @@
 <template>
   <Step
-    title="Welcome to Polaris!"
+    title="Welcome to Vox!"
     description="Your server is up and running, let's configure a couple things."
   >
     <Button label="Sounds good!" size="xl" data-pw="submit-welcome" @click="emits('proceed')" />

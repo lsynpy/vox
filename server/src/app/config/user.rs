@@ -121,7 +121,7 @@ impl Config {
 		if auth::verify_password(&user.hashed_password, password) {
 			let authorization = auth::Authorization {
 				username: username.to_owned(),
-				scope: auth::Scope::PolarisAuth,
+				scope: auth::Scope::VoxAuth,
 			};
 			auth::generate_auth_token(&authorization, auth_secret)
 		} else {
@@ -271,7 +271,7 @@ mod test {
 		let fake_token = auth::Token("fake token".to_owned());
 		assert!(ctx
 			.config_manager
-			.authenticate(&fake_token, auth::Scope::PolarisAuth)
+			.authenticate(&fake_token, auth::Scope::VoxAuth)
 			.await
 			.is_err())
 	}
@@ -293,7 +293,7 @@ mod test {
 
 		let authorization = ctx
 			.config_manager
-			.authenticate(&token, auth::Scope::PolarisAuth)
+			.authenticate(&token, auth::Scope::VoxAuth)
 			.await
 			.unwrap();
 
@@ -301,7 +301,7 @@ mod test {
 			authorization,
 			auth::Authorization {
 				username: TEST_USERNAME.to_owned(),
-				scope: auth::Scope::PolarisAuth,
+				scope: auth::Scope::VoxAuth,
 			}
 		)
 	}

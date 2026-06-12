@@ -2,7 +2,7 @@
 
 ## Overview
 
-Add play tracking and statistics to Polaris, enabling features like:
+Add play tracking and statistics to Vox, enabling features like:
 
 - Recently played artists/albums/songs
 - Most played content
@@ -11,7 +11,7 @@ Add play tracking and statistics to Polaris, enabling features like:
 
 **All statistics are strictly per-user.** Each user's listening data is isolated and cannot be accessed by other users.
 
-This makes Polaris self-sufficient without needing external services like Last.fm.
+This makes Vox self-sufficient without needing external services like Last.fm.
 
 ---
 
@@ -21,7 +21,7 @@ This makes Polaris self-sufficient without needing external services like Last.f
 
 **Rationale:**
 
-- Already integrated into Polaris for playlist storage
+- Already integrated into Vox for playlist storage
 - Supports per-user data with secondary keys (filter by owner)
 - ACID transactions with read/write separation
 - Schema versioning support for future migrations
@@ -617,7 +617,7 @@ Current API version: **8.1** (as of v0.16.0)
 ## Edge Cases & Considerations
 
 1. **Multi-user isolation:** Each user's plays are tracked separately via `username` field
-2. **Anonymous users:** Not applicable - Polaris requires auth
+2. **Anonymous users:** Not applicable - Vox requires auth
 3. **Song path changes:** If library is rescanned and paths change, old play records may become orphaned
    - **Solution:** Clean up play records when scanner detects removed songs
 4. **Concurrent plays:** If same user plays songs on multiple devices, records are independent

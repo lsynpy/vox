@@ -7,7 +7,7 @@
 # ///
 """Add all songs to 'fav' playlist and remove invalid entries.
 
-Uses Polaris API: GET /api/flatten for all songs, PUT /api/fav to update.
+Uses Vox API: GET /api/flatten for all songs, PUT /api/fav to update.
 Invalid songs are auto-filtered by the backend when saving.
 """
 import asyncio

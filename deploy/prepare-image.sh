@@ -19,7 +19,7 @@ export BUILDX_NO_DEFAULT_ATTESTATIONS=1
 # Tag scheme: date + short SHA
 TAG_DATE="$(date +%Y%m%d)"
 TAG_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")"
-IMAGE_TAG="${REGISTRY}/${ALIYUN_NAMESPACE}/polaris:${TAG_DATE}-${TAG_SHA}"
+IMAGE_TAG="${REGISTRY}/${ALIYUN_NAMESPACE}/vox:${TAG_DATE}-${TAG_SHA}"
 
 # Platforms to build
 PLATFORMS="linux/amd64,linux/arm64"
@@ -56,17 +56,17 @@ download_binary_from_release() {
     download_dir=$(mktemp -d)
 
     if ! gh release download "${tag}" \
-        --repo lsynpy/polaris \
-        --pattern "polaris-${arch}.tar.gz" \
+        --repo lsynpy/vox \
+        --pattern "vox-${arch}.tar.gz" \
         --dir "${download_dir}" --clobber 2>/dev/null; then
         rm -rf "${download_dir}"
         return 1
     fi
 
     mkdir -p "${TMPDIR}/server"
-    tar xzf "${download_dir}/polaris-${arch}.tar.gz" -C "${TMPDIR}/server"
-    mv "${TMPDIR}/server/polaris" "${TMPDIR}/server/polaris-${arch}"
-    chmod +x "${TMPDIR}/server/polaris-${arch}"
+    tar xzf "${download_dir}/vox-${arch}.tar.gz" -C "${TMPDIR}/server"
+    mv "${TMPDIR}/server/vox" "${TMPDIR}/server/vox-${arch}"
+    chmod +x "${TMPDIR}/server/vox-${arch}"
     rm -rf "${download_dir}"
     return 0
 }
@@ -79,7 +79,7 @@ echo ""
 echo "[2/4] Checking if release exists for commit ${SHORT_SHA}..."
 
 RELEASE_TAG=""
-release_json=$(gh release list --repo lsynpy/polaris --limit 20 --json tagName 2>/dev/null) || true
+release_json=$(gh release list --repo lsynpy/vox --limit 20 --json tagName 2>/dev/null) || true
 if [[ -n "${release_json}" ]]; then
     RELEASE_TAG=$(echo "${release_json}" | python3 -c "
 import sys, json
@@ -133,7 +133,7 @@ if [[ "${SKIP_BUILD}" == "false" ]]; then
         echo "  ${OUTPUT}"
         exit 1
     fi
-    echo "  Run: https://github.com/lsynpy/polaris/actions/runs/${RUN_ID}"
+    echo "  Run: https://github.com/lsynpy/vox/actions/runs/${RUN_ID}"
     echo "  Waiting for builds to complete..."
 
     # Poll every 5s until completed
@@ -162,11 +162,11 @@ if [[ "${SKIP_BUILD}" == "false" ]]; then
 
     if [[ "${conclusion}" != "success" ]]; then
         echo "  Build failed (conclusion: ${conclusion})"
-        echo "  Check: https://github.com/lsynpy/polaris/actions/runs/${RUN_ID}"
+        echo "  Check: https://github.com/lsynpy/vox/actions/runs/${RUN_ID}"
         exit 1
     fi
     echo "  Finding latest release..."
-    LATEST_TAG=$(gh release list --repo lsynpy/polaris --limit 5 --json tagName 2>/dev/null | python3 -c "import sys,json; [print(r['tagName']) for r in json.load(sys.stdin)]" 2>/dev/null | head -1)
+    LATEST_TAG=$(gh release list --repo lsynpy/vox --limit 5 --json tagName 2>/dev/null | python3 -c "import sys,json; [print(r['tagName']) for r in json.load(sys.stdin)]" 2>/dev/null | head -1)
 
     if [[ -z "${LATEST_TAG}" ]]; then
         echo "  Error: No release found"
@@ -178,7 +178,7 @@ if [[ "${SKIP_BUILD}" == "false" ]]; then
     for p in ${PLATFORMS//,/ }; do
         arch="${p#*/}"
         download_binary_from_release "${LATEST_TAG}" "${arch}" || {
-            echo "  Error: Failed to download polaris-${arch}.tar.gz"
+            echo "  Error: Failed to download vox-${arch}.tar.gz"
             exit 1
         }
         echo "    ${arch} downloaded"
@@ -204,16 +204,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /usr/share/polaris/web /var/cache/polaris /var/lib/polaris
+RUN mkdir -p /usr/share/vox/web /var/cache/vox /var/lib/vox
 
-COPY server/polaris-${TARGETARCH} /usr/local/bin/polaris
-COPY web /usr/share/polaris/web
+COPY server/vox-${TARGETARCH} /usr/local/bin/vox
+COPY web /usr/share/vox/web
 
-WORKDIR /var/lib/polaris
+WORKDIR /var/lib/vox
 
 EXPOSE 5050
 
-ENTRYPOINT ["polaris"]
+ENTRYPOINT ["vox"]
 CMD ["-f"]
 DOCKERFILE
 

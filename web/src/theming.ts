@@ -125,7 +125,7 @@ export function applyTheme(theme: Theme, accentBaseHue: number, accentChromaMult
     return;
   }
 
-  document.documentElement.setAttribute('data-polaris-theme-polarity', themeData.polarity);
+  document.documentElement.setAttribute('data-vox-theme-polarity', themeData.polarity);
 
   const style = document.documentElement.style;
   style.setProperty('--surface-0', '255 255 255');

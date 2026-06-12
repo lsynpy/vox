@@ -6,14 +6,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /usr/share/polaris/web /var/cache/polaris /var/lib/polaris
+RUN mkdir -p /usr/share/vox/web /var/cache/vox /var/lib/vox
 
-COPY polaris-${TARGETARCH} /usr/local/bin/polaris
-COPY web /usr/share/polaris/web
+COPY vox-${TARGETARCH} /usr/local/bin/vox
+COPY web /usr/share/vox/web
 
-WORKDIR /var/lib/polaris
+WORKDIR /var/lib/vox
 
 EXPOSE 5050
 
-ENTRYPOINT ["polaris"]
+ENTRYPOINT ["vox"]
 CMD ["-f"]

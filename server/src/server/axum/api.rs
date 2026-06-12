@@ -83,7 +83,7 @@ pub fn router() -> OpenApiRouter<App> {
 	get,
 	path = "/version",
 	tag = "Configuration",
-	description = "Returns the latest Polaris API version supported by this server.\n\nThe specification of this endpoint is guaranteed to remain consistent all API versions.",
+	description = "Returns the latest Vox API version supported by this server.\n\nThis endpoint is guaranteed to remain consistent across all API versions.",
 	responses(
 		(status = 200, body = dto::Version),
 	),
@@ -191,7 +191,7 @@ async fn put_settings(
 	get,
 	path = "/mount_dirs",
 	tag = "Configuration",
-	description = "Returns the list of directories Polaris indexes music from.",
+	description = "Returns the list of directories Vox indexes music from.",
 	security(
 		("auth_token" = []),
 		("auth_query_param" = []),
@@ -213,7 +213,7 @@ async fn get_mount_dirs(
 	put,
 	path = "/mount_dirs",
 	tag = "Configuration",
-	description = "Replaces the list of directories Polaris indexes music from.",
+	description = "Replaces the list of directories Vox indexes music from.",
 	security(
 		("auth_token" = []),
 		("auth_query_param" = []),
@@ -814,7 +814,7 @@ async fn get_recent_albums(
 	get,
 	path = "/search/{*query}",
 	tag = "Collection",
-	description = "Returns songs matching a search query. The query syntax is documented in the search section of the Polaris web UI.",
+	description = "Returns songs matching a search query. The query syntax is documented in the search section of the Vox web UI.",
 	security(
 		("auth_token" = []),
 		("auth_query_param" = []),
@@ -1011,7 +1011,7 @@ async fn export_playlists(
 		.map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
 		.collect::<String>();
 
-	let filename = format!("polaris-playlists-{suffix}.zip");
+	let filename = format!("vox-playlists-{suffix}.zip");
 
 	let headers = HeaderMap::from_iter([(
 		header::CONTENT_DISPOSITION,

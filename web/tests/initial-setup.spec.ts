@@ -11,7 +11,7 @@ test.describe('initial setup tests', () => {
   test('can click through initial setup flow', async ({ page }) => {
     await page.goto('/');
 
-    await expect(page.getByText('Welcome to Polaris!')).toBeVisible();
+    await expect(page.getByText('Welcome to Vox!')).toBeVisible();
     await page.getByTestId('submit-welcome').click();
 
     await expect(page.getByText('Music Sources')).toBeVisible();

@@ -1,9 +1,9 @@
 {
-  "name": "polaris-web",
+  "name": "vox-web",
   "version": "1.0.0",
   "type": "module",
-  "description": "Web UI for Polaris",
-  "repository": "https://github.com/agersant/polaris-web.git",
+  "description": "Web UI for Vox",
+  "repository": "https://github.com/lsynpy/vox-web.git",
   "author": "Antoine Gersant <antoine.gersant@lesforges.org>",
   "license": "MIT",
   "devDependencies": {

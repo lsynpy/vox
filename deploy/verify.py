@@ -84,7 +84,7 @@ async def check_api(base_url: str) -> bool:
 
 async def check_ui(base_url: str) -> bool:
     """Smoke test UI pages using Playwright."""
-    # Hash-based routes: Polaris uses createWebHashHistory()
+    # Hash-based routes: Vox uses createWebHashHistory()
     pages = [
         ("#/", None),
         ("#/files", "Files"),

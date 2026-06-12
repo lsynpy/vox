@@ -9,7 +9,7 @@ include $(DEPLOY_DIR)/.registry.env
 # Auto-generated image tag: YYYYMMDD-sha
 TAG_DATE := $(shell date +%Y%m%d)
 TAG_SHA  := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
-IMAGE_TAG := $(REGISTRY)/$(ALIYUN_NAMESPACE)/polaris:$(TAG_DATE)-$(TAG_SHA)
+IMAGE_TAG := $(REGISTRY)/$(ALIYUN_NAMESPACE)/vox:$(TAG_DATE)-$(TAG_SHA)
 
 # ---------------------------------------------------------------------------
 # Help
@@ -23,7 +23,7 @@ help:
 	@echo ""
 	@echo "Development:"
 	@echo "  dev    Build web and start server (static)"
-	@echo "  serve  Polaris API server only"
+	@echo "  serve  Vox API server only"
 	@echo "  watch  Vue dev server with HMR"
 	@echo ""
 	@echo "Testing:"

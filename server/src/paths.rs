@@ -19,10 +19,10 @@ impl Default for Paths {
 	fn default() -> Self {
 		Self {
 			cache_dir_path: ["."].iter().collect(),
-			config_file_path: [".", "polaris.toml"].iter().collect(),
+			config_file_path: [".", "vox.toml"].iter().collect(),
 			data_dir_path: ["."].iter().collect(),
-			log_file_path: Some([".", "polaris.log"].iter().collect()),
-			pid_file_path: [".", "polaris.pid"].iter().collect(),
+			log_file_path: Some([".", "vox.log"].iter().collect()),
+			pid_file_path: [".", "vox.pid"].iter().collect(),
 			web_dir_path: [".", "web"].iter().collect(),
 		}
 	}
@@ -36,9 +36,9 @@ impl Default for Paths {
 			local_app_data.join(["Permafrost", "Polaris"].iter().collect::<PathBuf>());
 		Self {
 			cache_dir_path: install_directory.clone(),
-			config_file_path: install_directory.join("polaris.toml"),
+			config_file_path: install_directory.join("vox.toml"),
 			data_dir_path: install_directory.clone(),
-			log_file_path: Some(install_directory.join("polaris.log")),
+			log_file_path: Some(install_directory.join("vox.log")),
 			web_dir_path: install_directory.join("web"),
 		}
 	}
@@ -52,19 +52,19 @@ impl Paths {
 				.map(PathBuf::from)
 				.unwrap_or(defaults.cache_dir_path),
 			config_file_path: option_env!("POLARIS_CONFIG_DIR")
-				.map(|p| [p, "polaris.toml"].iter().collect())
+				.map(|p| [p, "vox.toml"].iter().collect())
 				.unwrap_or(defaults.config_file_path),
 			data_dir_path: option_env!("POLARIS_DATA_DIR")
 				.map(PathBuf::from)
 				.unwrap_or(defaults.data_dir_path),
 			log_file_path: option_env!("POLARIS_LOG_DIR")
 				.map(PathBuf::from)
-				.map(|p| p.join("polaris.log"))
+				.map(|p| p.join("vox.log"))
 				.or(defaults.log_file_path),
 			#[cfg(unix)]
 			pid_file_path: option_env!("POLARIS_PID_DIR")
 				.map(PathBuf::from)
-				.map(|p| p.join("polaris.pid"))
+				.map(|p| p.join("vox.pid"))
 				.unwrap_or(defaults.pid_file_path),
 			web_dir_path: option_env!("POLARIS_WEB_DIR")
 				.map(PathBuf::from)

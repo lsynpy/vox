@@ -1,8 +1,8 @@
-# Polaris - Context for AI
+# Vox - Context for AI
 
 ## Project Overview
 
-**Polaris** is a self-hosted music streaming server designed for exceptional performance with large
+**Vox** is a self-hosted music streaming server designed for exceptional performance with large
 music collections (100,000+ songs). It is free, open-source software written in **Rust**.
 
 ### Key Characteristics
@@ -222,10 +222,10 @@ API version: 8.1 (as of v0.16.0)
 
 ## Related Projects
 
-- **Polaris Android**: Official mobile app
+- **Vox Android**: Official mobile app
 - **Polarios**: iOS app (third-party)
 - **Polarity**: Hardware player (third-party)
-- **docker-polaris**: Docker containerization
+- **docker-vox**: Docker containerization
 
 ## Documentation Files
 

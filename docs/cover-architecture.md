@@ -1,4 +1,4 @@
-# Polaris Music System — Cover Art Architecture
+# Vox Music System — Cover Art Architecture
 
 ## Problem
 

@@ -27,7 +27,7 @@ pub struct Token(pub String);
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum Scope {
-	PolarisAuth,
+	VoxAuth,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -81,7 +81,7 @@ pub fn decode_auth_token(
 ) -> Result<Authorization, Error> {
 	let Token(data) = auth_token;
 	let ttl = match scope {
-		Scope::PolarisAuth => 0, // permanent
+		Scope::VoxAuth => 0, // permanent
 	};
 	let authorization =
 		branca::decode(data, auth_secret.as_ref(), ttl).map_err(|_| Error::InvalidAuthToken)?;

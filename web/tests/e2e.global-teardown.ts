@@ -14,7 +14,7 @@ export default async function globalTeardown(_config: FullConfig) {
 
   // Find the e2e temp directory
   const entries = fs.readdirSync(tmpRoot);
-  const e2eDir = entries.find((e) => e.startsWith('.polaris-e2e-'));
+  const e2eDir = entries.find((e) => e.startsWith('.vox-e2e-'));
   if (!e2eDir) return;
 
   const tmpDir = path.join(tmpRoot, e2eDir);
@@ -24,7 +24,7 @@ export default async function globalTeardown(_config: FullConfig) {
   if (fs.existsSync(pidFile)) {
     const pid = Number(fs.readFileSync(pidFile, 'utf-8').trim());
     try {
-      process.kill(-pid, 'SIGTERM'); // kill process group (cargo + polaris)
+      process.kill(-pid, 'SIGTERM'); // kill process group (cargo + vox)
     } catch {
       try {
         process.kill(pid, 'SIGTERM');

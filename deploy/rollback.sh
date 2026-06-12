@@ -9,8 +9,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
 source "${SCRIPT_DIR}/.env.${ENV}"
 
-IMAGE_NAME="polaris"
-CONTAINER_NAME="polaris"
+IMAGE_NAME="vox"
+CONTAINER_NAME="vox"
 
 # Support both short tags (e.g. "local", "v1.0.0") and full registry paths
 if [[ "${VERSION}" == registry* ]]; then
@@ -44,11 +44,11 @@ rollback_remote() {
             --restart unless-stopped \
             -p ${POLARIS_PORT}:${POLARIS_PORT} \
             -v ${MUSIC_DIR}:/music \
-            -v ${CONFIG_DIR}:/var/lib/polaris \
-            -v ${CACHE_DIR}:/var/cache/polaris \
+            -v ${CONFIG_DIR}:/var/lib/vox \
+            -v ${CACHE_DIR}:/var/cache/vox \
             ${IMAGE_TAG} \
             -f \
-            -w /usr/share/polaris/web
+            -w /usr/share/vox/web
 
         docker ps --filter "name=${CONTAINER_NAME}"
 REMOTE_EOF

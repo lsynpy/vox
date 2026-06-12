@@ -26,7 +26,7 @@ pub enum Error {
 	#[error("Could not parse command line arguments:\n\n{0}")]
 	CliOptions(#[from] options::Error),
 	#[cfg(unix)]
-	#[error("Failed to turn polaris process into a daemon:\n\n{0}")]
+	#[error("Failed to turn vox process into a daemon:\n\n{0}")]
 	Daemonize(daemonize::Error),
 	#[error("Could not create log directory `{0}`:\n\n{1}")]
 	LogDirectoryCreationError(PathBuf, std::io::Error),

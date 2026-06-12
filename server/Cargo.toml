@@ -1,5 +1,5 @@
 [package]
-name = "polaris"
+name = "vox"
 version = "0.0.0"
 authors = ["Antoine Gersant <antoine.gersant@lesforges.org>"]
 edition = "2021"

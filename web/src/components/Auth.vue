@@ -1,7 +1,7 @@
 <template>
   <div class="flex flex-col items-center justify-center bg-ls-50 dark:bg-ds-800">
     <div class="w-[480px] bg-ls-0 dark:bg-ds-900 p-12 rounded-lg shadow">
-      <img class="mx-auto h-16 mb-12" src="/assets/logo.svg" alt="Polaris" />
+      <img class="mx-auto h-16 mb-12" src="/assets/logo.svg" alt="Vox" />
       <form name="authForm" class="space-y-6" @submit.prevent="doLogin">
         <InputText
           id="username"

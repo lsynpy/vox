@@ -52,34 +52,34 @@ deploy_container() {
 
     if [[ "${IS_LOCAL}" == "true" ]]; then
         docker pull "${IMAGE_TAG}"
-        docker stop polaris 2>/dev/null || true
-        docker rm polaris 2>/dev/null || true
+        docker stop vox 2>/dev/null || true
+        docker rm vox 2>/dev/null || true
         docker run -d \
-            --name polaris \
+            --name vox \
             --restart unless-stopped \
             -p "${POLARIS_PORT}:${POLARIS_PORT}" \
             -v "${MUSIC_DIR}:/music" \
-            -v "${CONFIG_DIR}:/var/lib/polaris" \
-            -v "${CACHE_DIR}:/var/cache/polaris" \
+            -v "${CONFIG_DIR}:/var/lib/vox" \
+            -v "${CACHE_DIR}:/var/cache/vox" \
             "${IMAGE_TAG}" \
-            -f -w /usr/share/polaris/web
+            -f -w /usr/share/vox/web
     else
         ssh "${VPS_HOSTNAME}" bash <<SSH_EOF
             set -euo pipefail
             echo '  Pulling image...'
             docker pull ${IMAGE_TAG}
             echo '  Starting container...'
-            docker stop polaris 2>/dev/null || true
-            docker rm polaris 2>/dev/null || true
+            docker stop vox 2>/dev/null || true
+            docker rm vox 2>/dev/null || true
             docker run -d \
-                --name polaris \
+                --name vox \
                 --restart unless-stopped \
                 --net=host \
                 -v ${MUSIC_DIR}:/music \
-                -v ${CONFIG_DIR}:/var/lib/polaris \
-                -v ${CACHE_DIR}:/var/cache/polaris \
+                -v ${CONFIG_DIR}:/var/lib/vox \
+                -v ${CACHE_DIR}:/var/cache/vox \
                 ${IMAGE_TAG} \
-                -f -w /usr/share/polaris/web
+                -f -w /usr/share/vox/web
 SSH_EOF
     fi
 }
@@ -97,7 +97,7 @@ deploy() {
     if [[ "${IS_LOCAL}" == "true" ]]; then
         mkdir -p "${CONFIG_DIR}" "${CACHE_DIR}"
 
-        CONFIG_FILE="${CONFIG_DIR}/polaris.toml"
+        CONFIG_FILE="${CONFIG_DIR}/vox.toml"
         if [[ ! -f "${CONFIG_FILE}" ]]; then
             echo "  Writing config..."
             cat > "${CONFIG_FILE}" << EOF
@@ -141,7 +141,7 @@ EOF
     echo "  Web UI:   http://${ip}:${POLARIS_PORT}"
     echo "  API docs: http://${ip}:${POLARIS_PORT}/api-docs/"
     if [[ "${IS_LOCAL}" == "true" ]]; then
-        docker ps --filter "name=polaris" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+        docker ps --filter "name=vox" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
     fi
 }
 

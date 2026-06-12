@@ -43,7 +43,7 @@ where
 		};
 
 		let authorization = config_manager
-			.authenticate(&auth::Token(token), auth::Scope::PolarisAuth)
+			.authenticate(&auth::Token(token), auth::Scope::VoxAuth)
 			.await?;
 
 		Ok(Auth {

@@ -12,7 +12,7 @@ export default function setupBroadcasts() {
     () => playback.currentSong,
     (song) => {
       if (!song) {
-        document.title = 'Polaris';
+        document.title = 'Vox';
         return;
       }
 

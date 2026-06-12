@@ -1,8 +1,8 @@
-# Polaris
+# Vox
 
 A self-hosted music streaming server, to enjoy your music collection from any computer or mobile device.
 
-This is a fork of the original [agersant/polaris](https://github.com/agersant/polaris), customized
+This is a fork of the original [Polaris](https://github.com/agersant/polaris) project, customized
 for personal use with ARM64 deployment.
 
 ## Original Project

@@ -29,7 +29,7 @@ pub fn open_api() -> OpenApi {
 			.build(),
             TagBuilder::new()
 			.name("User Management")
-			.description(Some("These endpoints can be used to manage or sign in users of this Polaris server."))
+			.description(Some("These endpoints can be used to manage or sign in users of this Vox server."))
 			.build(),
             TagBuilder::new()
 			.name("File Browser")
@@ -37,7 +37,7 @@ pub fn open_api() -> OpenApi {
 			.build(),
             TagBuilder::new()
 			.name("Configuration")
-			.description(Some("These endpoints allow administrators to manage the server's configuration.\n\nChanges are immediately saved in the Polaris configuration file."))
+			.description(Some("These endpoints allow administrators to manage the server's configuration.\n\nChanges are immediately saved in the Vox configuration file."))
 			.build(),
             TagBuilder::new()
 			.name("Playlists")

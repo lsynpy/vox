@@ -8,10 +8,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
 source "${SCRIPT_DIR}/.env.${ENV}"
 
-CONTAINER_NAME="polaris"
+CONTAINER_NAME="vox"
 
 uninstall_local() {
-    echo "==> Uninstalling Polaris [local]..."
+    echo "==> Uninstalling Vox [local]..."
     docker stop "${CONTAINER_NAME}" 2>/dev/null || true
     docker rm "${CONTAINER_NAME}" 2>/dev/null || true
     echo "  Container removed."
@@ -25,7 +25,7 @@ uninstall_remote() {
         exit 1
     fi
 
-    echo "==> Uninstalling Polaris on ${VPS_HOSTNAME}..."
+    echo "==> Uninstalling Vox on ${VPS_HOSTNAME}..."
     ssh "${VPS_HOSTNAME}" << REMOTE_EOF
         docker stop ${CONTAINER_NAME} 2>/dev/null || true
         docker rm ${CONTAINER_NAME} 2>/dev/null || true

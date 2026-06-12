@@ -12,12 +12,12 @@
       />
       <div class="mt-4 text-ls-600 text-sm flex flex-col gap-2">
         <p>
-          If this setting is populated, the Polaris server will regularly make GET requests at the
+          If this setting is populated, the Vox server will regularly make GET requests at the
           specified URL.
         </p>
         <p>
           If you use a Dynamic DNS service provider (DuckDNS, freemyip, YDNS, etc.), use the update
-          URL they give you in order to expose your Polaris instance to the internet.
+          URL they give you in order to expose your Vox instance to the internet.
         </p>
       </div>
       <Button

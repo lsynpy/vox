@@ -59,18 +59,18 @@ export default async function globalSetup(_config: FullConfig) {
   const tmpDir = path.join(
     projectRoot,
     '.tmp',
-    `.polaris-e2e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    `.vox-e2e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   );
 
   // Create isolated data directory
   fs.mkdirSync(tmpDir, { recursive: true });
 
   // Create empty config file so server starts with no users (triggers setup wizard)
-  fs.writeFileSync(path.join(tmpDir, 'polaris.toml'), '');
+  fs.writeFileSync(path.join(tmpDir, 'vox.toml'), '');
   const stdoutLog = path.join(tmpDir, 'server.stdout.log');
   const stderrLog = path.join(tmpDir, 'server.stderr.log');
 
-  // Start Polaris server on port 5051 with its own isolated data and config
+  // Start Vox server on port 5051 with its own isolated data and config
   const serverDir = path.join(projectRoot, 'server');
   const server = spawn(
     'cargo',
@@ -83,7 +83,7 @@ export default async function globalSetup(_config: FullConfig) {
       '--data',
       tmpDir,
       '--config',
-      path.join(tmpDir, 'polaris.toml'),
+      path.join(tmpDir, 'vox.toml'),
       '-w',
       '../web/dist',
     ],
@@ -115,7 +115,7 @@ export default async function globalSetup(_config: FullConfig) {
       const stderrTail = readLogTail(stderrLog);
       const details = [stdoutTail, stderrTail].filter(Boolean).join('\n\n');
       throw new Error(
-        `Polaris exited before becoming ready on port ${E2E_PORT} ` +
+        `Vox exited before becoming ready on port ${E2E_PORT} ` +
           `(code=${exitInfo.code}, signal=${exitInfo.signal}).` +
           (details ? `\n\n${details}` : '')
       );

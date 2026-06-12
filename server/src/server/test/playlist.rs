@@ -236,7 +236,7 @@ async fn export_playlists_golden_path() {
 	let content_disposition = response.headers().get(header::CONTENT_DISPOSITION).unwrap();
 	assert_eq!(
 		content_disposition.to_str().unwrap(),
-		r#"attachment; filename="polaris-playlists-test_user.zip""#
+		r#"attachment; filename="vox-playlists-test_user.zip""#
 	);
 
 	let mut expected = Vec::new();

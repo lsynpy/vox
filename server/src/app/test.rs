@@ -44,7 +44,7 @@ impl ContextBuilder {
 	}
 
 	pub async fn build(self) -> Context {
-		let config_path = self.test_directory.join("polaris.toml");
+		let config_path = self.test_directory.join("vox.toml");
 
 		let auth_secret = auth::Secret::default();
 		let config_manager = config::Manager::new(&config_path, auth_secret)

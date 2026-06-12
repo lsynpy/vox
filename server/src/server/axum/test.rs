@@ -26,10 +26,10 @@ impl TestService for AxumTestService {
 
 		let paths = Paths {
 			cache_dir_path: ["test-output", test_name].iter().collect(),
-			config_file_path: output_dir.join("polaris.toml"),
+			config_file_path: output_dir.join("vox.toml"),
 			data_dir_path: ["test-output", test_name].iter().collect(),
 			#[cfg(unix)]
-			pid_file_path: output_dir.join("polaris.pid"),
+			pid_file_path: output_dir.join("vox.pid"),
 			log_file_path: None,
 			web_dir_path: ["test-data", "web"].iter().collect(),
 		};
