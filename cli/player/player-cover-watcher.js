@@ -24,8 +24,11 @@ let pendingPath = null;
 let pendingTimer = null;
 
 function coverTmpPath(localPath) {
-  const base = path.basename(localPath).replace(/[^a-zA-Z0-9_\-]/g, "_");
-  return path.join(PLAYER_DIR, `cover-${base}-${Date.now()}.jpg`);
+  const base = path.basename(localPath, path.extname(localPath));
+  // Keep Chinese chars, strip only truly unsafe filename characters
+  const safe = base.replace(/[/\\:*?"<>|]/g, "_").slice(0, 60);
+  const hash = require("crypto").createHash("md5").update(localPath).digest("hex").slice(0, 8);
+  return path.join(PLAYER_DIR, `cover-${safe}-${hash}.jpg`);
 }
 
 // ─── IPC ────────────────────────────────────────────────────
