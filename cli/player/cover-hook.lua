@@ -33,6 +33,15 @@ function log(level, msg, extra)
     if f then f:write(line .. "\n"); f:close() end
 end
 
+-- URL decode percent-encoded characters and strip auth tokens from URLs
+function url_decode(str)
+    if not str then return "" end
+    local decoded = str:gsub("%%(%x%x)", function(hex) return string.char(tonumber(hex, 16)) end)
+    -- Remove auth_token parameter from URLs
+    decoded = decoded:gsub("([?&])auth_token=[^&%s]+", "%1auth_token=[REDACTED]")
+    return decoded
+end
+
 -- Run a shell command and return stdout
 function cmd_output(cmd)
     local handle = io.popen(cmd, "r")
@@ -91,7 +100,7 @@ function on_load()
 
     -- Log track change
     log("INFO", LOG_SEPARATOR)
-    log("INFO", "Track path changed", url)
+    log("INFO", "Track path changed", url_decode(url))
 
     -- Cache hit: just set cover-art-files
     local f = io.open(cover_path, "r")
