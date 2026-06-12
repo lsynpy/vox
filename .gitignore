@@ -39,3 +39,7 @@ cache
 .tmp
 
 .claude
+
+# Player runtime state
+~/.polaris/
+cli/player/*.log
