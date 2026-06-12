@@ -76,33 +76,71 @@ function onIpcData(data) {
   }
 }
 
-// ─── Cover extraction and push ─────────────────────────────────
+// ─── Cover download from Polaris API ─────────────────────────
 
-function extractAndPushCover(localPath) {
-  if (!fs.existsSync(localPath)) return;
+function downloadAndPushCover(polarisPath) {
+  if (!polarisPath) return;
 
-  let stat;
-  try { stat = fs.statSync(localPath); } catch { return; }
-  const cacheKey = `${localPath}:${stat.mtimeMs}`;
+  const cacheKey = `polaris:${polarisPath}`;
   if (COVER_CACHE.get(cacheKey)) return;
 
-  const coverPath = coverTmpPath(localPath);
-  try {
-    execSync(
-      `ffmpeg -y -i '${localPath.replace(/'/g, "'\\''")}' -an -vcodec copy '${coverPath}' 2>/dev/null`,
-      { timeout: 8000, stdio: "ignore" }
-    );
-  } catch { return; }
-
-  if (fs.existsSync(coverPath) && fs.statSync(coverPath).size > 100) {
-    sendCommand(["set", "cover-art-files", coverPath]).catch(() => {});
+  const coverPath = coverTmpPath(polarisPath);
+  // Fetch auth token and download thumbnail
+  getPolarisToken().then(token => {
+    const http = require("http");
+    const urlStr = `http://192.168.100.1:5050/api/thumbnail/${encodeURIComponent(polarisPath)}?size=small&pad=false&auth_token=${encodeURIComponent(token)}`;
+    const u = new URL(urlStr);
+    return new Promise((resolve, reject) => {
+      const req = http.request({hostname: u.hostname, port: u.port, path: u.pathname+u.search, method:"GET", headers:{"Accept-Version":"8"}},
+        res => { const c=[]; res.on("data",x=>c.push(x)); res.on("end",()=>resolve(Buffer.concat(c))); });
+      req.on("error", reject);
+      req.end();
+    });
+  }).then(data => {
+    if (!data || data.length <= 100) return;
+    fs.writeFileSync(coverPath, data);
+    return sendCommand(["set", "cover-art-files", coverPath]);
+  }).then(() => {
     COVER_CACHE.set(cacheKey, true);
     if (COVER_CACHE.size > CACHE_MAX) {
       const firstKey = COVER_CACHE.keys().next().value;
       COVER_CACHE.delete(firstKey);
     }
     cleanupOldCovers(coverPath);
+  }).catch(() => {});
+}
+
+function getPolarisToken() {
+  return new Promise((resolve, reject) => {
+    const http = require("http");
+    const req = http.request({hostname:"192.168.100.1", port:5050, path:"/api/auth", method:"POST",
+      headers:{"Content-Type":"application/json"}}, res => {
+      let d = "";
+      res.on("data", c => d += c);
+      res.on("end", () => { try { resolve(JSON.parse(d).token); } catch { reject(new Error("auth failed")); } });
+    });
+    req.on("error", reject);
+    req.write(JSON.stringify({username:"admin", password:"admin"}));
+    req.end();
+  });
+}
+
+function extractPolarisPath(jdcUrl) {
+  if (jdcUrl.startsWith("http://192.168.100.1:5050")) {
+    try {
+      const u = new URL(jdcUrl);
+      const segments = u.pathname.split("/").filter(Boolean);
+      const audioIdx = segments.indexOf("audio");
+      if (audioIdx >= 0) {
+        return segments.slice(audioIdx + 1).map(s => decodeURIComponent(s)).join("/");
+      }
+    } catch { return null; }
+  } else if (jdcUrl.startsWith("/")) {
+    return jdcUrl;
+  } else if (jdcUrl) {
+    return `Music/${jdcUrl}`;
   }
+  return null;
 }
 
 function cleanupOldCovers() {
@@ -136,25 +174,8 @@ function onPathChanged(rawUrl) {
 }
 
 function resolvePathAndPush(rawUrl) {
-  let localPath = rawUrl || "";
-  if (!localPath) return;
-
-  if (localPath.startsWith("http://192.168.100.1:5050")) {
-    try {
-      const parts = new URL(localPath).pathname.split("/");
-      const audioIdx = parts.indexOf("audio");
-      if (audioIdx < 0) return;
-      const relParts = parts.slice(audioIdx + 1).map(s => decodeURIComponent(s));
-      if (relParts.length < 2) return;
-      const relative = relParts.slice(1).join("/");
-      const normRel = relative.startsWith("Music/") ? relative.slice(6) : relative;
-      localPath = path.join(MUSIC_DIR, normRel);
-    } catch { return; }
-  } else if (!localPath.startsWith("/")) {
-    localPath = path.join(MUSIC_DIR, localPath);
-  }
-
-  extractAndPushCover(localPath);
+  const polarisPath = extractPolarisPath(rawUrl);
+  downloadAndPushCover(polarisPath);
 }
 
 // ─── Connection management ──────────────────────────────────────

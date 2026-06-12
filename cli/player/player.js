@@ -310,43 +310,37 @@ async function pushCoverArt() {
   try {
     // Get current file path from mpv
     const pathResp = await sendMpvCommand(["get_property", "path"]);
-    let localPath = pathResp?.data || "";
-    if (!localPath) return;
+    let jdcUrl = pathResp?.data || "";
+    if (!jdcUrl) return;
 
-    // If JDC URL, resolve to local path
-    if (localPath.startsWith("http://192.168.100.1:5050")) {
-      const parts = new URL(localPath).pathname.split("/");
-      const audioIdx = parts.indexOf("audio");
-      if (audioIdx < 0) return;
-      // relative = Music/Artist/Album/file.ext without auth_token
-      const relParts = parts.slice(audioIdx + 1).map(s => decodeURIComponent(s));
-      // relParts[0] = "Music", rest = "Artist/Album/file.ext"
-      if (relParts.length < 2) return;
-      const relative = relParts.slice(1).join("/");
-      // Strip "Music/" prefix if present
-      const normRel = relative.startsWith("Music/") ? relative.slice(6) : relative;
-      localPath = path.join(MUSIC_DIR, normRel);
-    } else if (!localPath.startsWith("/")) {
-      // Relative path
-      localPath = path.join(MUSIC_DIR, localPath);
+    // Extract the Polaris path from the JDC stream URL
+    // URL format: /api/audio/Music/Artist/Album/file.ext?auth_token=...
+    let polarisPath = "";
+    if (jdcUrl.startsWith("http://192.168.100.1:5050")) {
+      const u = new URL(jdcUrl);
+      const segments = u.pathname.split("/").filter(Boolean);
+      const audioIdx = segments.indexOf("audio");
+      if (audioIdx >= 0) {
+        polarisPath = segments.slice(audioIdx + 1).map(s => decodeURIComponent(s)).join("/");
+      }
+    } else if (jdcUrl.startsWith("/")) {
+      polarisPath = jdcUrl;
+    } else {
+      polarisPath = `Music/${jdcUrl}`;
     }
+    if (!polarisPath) return;
 
-    if (!fs.existsSync(localPath)) return;
-
-    // Cache: skip if already extracted for this file (same mtime)
-    const stat = fs.statSync(localPath);
-    const cacheKey = `${localPath}:${stat.mtimeMs}`;
+    // Cache: skip if already downloaded for this path
+    const cacheKey = `polaris:${polarisPath}`;
     if (COVER_CACHE.get(cacheKey)) return;
 
-    // Extract cover art using ffmpeg to a UNIQUE path per track
-    const coverPath = coverTmpPath(localPath);
-    const { execSync } = require("child_process");
-    execSync(
-      `ffmpeg -y -i '${localPath.replace(/'/g, "'\\''")}' -an -vcodec copy '${coverPath}' 2>/dev/null`,
-      { timeout: 5000, stdio: "ignore" }
-    );
+    // Download cover from Polaris thumbnail API
+    const coverPath = coverTmpPath(polarisPath);
+    const thumbPath = `/api/thumbnail/${encodeURIComponent(polarisPath)}?size=small&pad=false`;
+    const data = await polarisGetBuffer(thumbPath);
 
-    if (fs.existsSync(coverPath) && fs.statSync(coverPath).size > 100) {
+    if (data && data.length > 100) {
+      require("fs").writeFileSync(coverPath, data);
       await sendMpvCommand(["set", "cover-art-files", coverPath]);
       COVER_CACHE.set(cacheKey, true);
       // Limit cache size
@@ -739,6 +733,26 @@ async function polarisGet(path) {
   });
   if (resp.status !== 200) throw new Error(`Polaris GET ${path} failed: ${resp.status} ${(resp.body || "").substring(0, 200)}`);
   return resp.json();
+}
+
+async function polarisGetBuffer(path) {
+  const token = await polarisAuth();
+  const separator = path.includes("?") ? "&" : "?";
+  const url = `${POLARIS_URL}${path}${separator}auth_token=${encodeURIComponent(token)}`;
+  const urlObj = new URL(url);
+  return new Promise((resolve, reject) => {
+    const req = require("http").request(
+      { hostname: urlObj.hostname, port: urlObj.port || 80, path: urlObj.pathname + urlObj.search, method: "GET",
+        headers: { "Accept-Version": "8" } },
+      (res) => {
+        const chunks = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => resolve(Buffer.concat(chunks)));
+      }
+    );
+    req.on("error", reject);
+    req.end();
+  });
 }
 
 async function polarisPut(path, body) {
