@@ -797,13 +797,6 @@ async function polarisPut(path, body) {
   if (resp.status !== 200 && resp.status !== 204) throw new Error(`Polaris PUT ${path} failed: ${resp.status}`);
 }
 
-function polarisPathToLocal(polarisPath) {
-  const prefix = `${POLARIS_MOUNT}/`;
-  return polarisPath.startsWith(prefix)
-    ? path.join(MUSIC_DIR, polarisPath.slice(prefix.length))
-    : path.join(MUSIC_DIR, polarisPath);
-}
-
 // ─── Playlist commands ───────────────────────────────────────
 
 async function cmdPlaylist(name) {

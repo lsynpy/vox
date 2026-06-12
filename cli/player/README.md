@@ -64,7 +64,9 @@ player help
 ## How It Works
 
 - **Audio backend**: `mpv --no-video` running as daemon, controlled via Unix IPC socket
-- **Music source**: `~/Music/polaris/` (Artist/Album/ structure)
+- **Music source**: `~/Music/polaris/` (Artist/Album/ structure, mirrored from JDC)
 - **Playlist source**: Polaris server at `http://192.168.100.1:5050`
+- **Cover art**: Downloaded from Polaris thumbnail API, pushed via mpv `cover-art-files`
 - **State**: Everything from mpv IPC or Polaris API — no local state cache
+- **Logging**: All operations logged to `/tmp/polaris-player/player.log` (auto-rotate at 5MB)
 - **Format support**: mp3, m4a, flac, wav, ogg
