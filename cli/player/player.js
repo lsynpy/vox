@@ -59,9 +59,11 @@ function loadState() {
         state.pid = null;
       }
     }
+    // Ensure new fields with defaults
+    if (state.mpvBaseIndex === undefined) state.mpvBaseIndex = 0;
     return state;
   } catch {
-    return { queue: [], currentIndex: -1, volume: 80, pid: null };
+    return { queue: [], currentIndex: -1, volume: 80, pid: null, mpvBaseIndex: 0 };
   }
 }
 
@@ -211,6 +213,11 @@ function searchScored(query) {
 async function loadQueueToMpvPlaylist(state) {
   if (state.currentIndex < 0 || state.queue.length === 0) return;
 
+  // Record the base index so syncCurrentIndexFromMpv can compute
+  // currentIndex = mpvBaseIndex + mpv_playlist_pos (idempotently)
+  state.mpvBaseIndex = state.currentIndex;
+  saveState(state);
+
   let useStream = false;
   let token = "";
   try {
@@ -270,16 +277,18 @@ async function loadQueueToMpvPlaylist(state) {
 }
 
 // Sync state.currentIndex from mpv's playlist position (handles auto-advance)
+// Idempotent: uses mpvBaseIndex so repeated calls don't drift.
 async function syncCurrentIndexFromMpv(state) {
   if (!state.pid) return state;
   try {
     const resp = await sendMpvCommand(["get_property", "playlist-pos"]);
     if (resp && typeof resp.data === "number" && resp.data >= 0) {
       const mpvIndex = resp.data;
-      // mpv playlist-pos is relative to its playlist which starts at current track
-      // Our queue has the full list; if mpv advanced by N, update ours
-      if (state.currentIndex + mpvIndex < state.queue.length) {
-        state.currentIndex = state.currentIndex + mpvIndex;
+      // mpv playlist-pos is relative to the internal playlist that loadQueueToMpvPlaylist
+      // built starting at mpvBaseIndex. So currentIndex = mpvBaseIndex + mpvIndex.
+      const computed = (state.mpvBaseIndex ?? 0) + mpvIndex;
+      if (computed >= 0 && computed < state.queue.length) {
+        state.currentIndex = computed;
       }
       saveState(state);
     }
@@ -607,6 +616,52 @@ async function cmdList() {
   if (state.queue.length === 0) console.log("  (empty)");
 }
 
+// Decode currently playing info from mpv directly (not from state.json)
+async function mpvNowPlaying() {
+  try {
+    // Get the streaming URL or file path from mpv
+    const pathResp = await sendMpvCommand(["get_property", "path"]);
+    const titleResp = await sendMpvCommand(["get_property", "media-title"]);
+    const path = pathResp?.data || "";
+    const title = titleResp?.data || "";
+
+    if (path.startsWith("http://192.168.100.1:5050")) {
+      // Polaris streaming URL — decode Artist/Album/Title from path
+      try {
+        const u = new URL(path);
+        const segments = u.pathname.split("/").filter(Boolean);
+        // /api/audio/Music/Artist/Album/N. Title.ext
+        const audioIdx = segments.indexOf("audio");
+        if (audioIdx >= 0 && segments.length >= audioIdx + 4) {
+          const segs = segments.slice(audioIdx + 2).map(s => decodeURIComponent(s));
+          // Last segment is "N. Title.ext"
+          const filePart = segs.pop();
+          const relPath = segs.join("/"); // Artist/Album
+          const slashIdx = relPath.lastIndexOf("/");
+          const artist = slashIdx >= 0 ? relPath.slice(0, slashIdx) : relPath;
+          const album = slashIdx >= 0 ? relPath.slice(slashIdx + 1) : "Unknown";
+          const trackTitle = filePart.replace(/^\d+\.\s*/, "").replace(/\.[^.]+$/, "");
+          return { artist, album, title: trackTitle };
+        }
+      } catch { /* fall through */ }
+    } else if (path && !path.startsWith("http")) {
+      // Local file path
+      const relative = path.startsWith(MUSIC_DIR) ? path.slice(MUSIC_DIR.length + 1) : path;
+      const parts = relative.split("/");
+      const artist = parts.length >= 2 ? parts[0] : "Unknown";
+      const album = parts.length >= 3 ? parts[1] : "Unknown";
+      const file = parts[parts.length - 1];
+      const trackTitle = file.replace(/^\d+\.\s*/, "").replace(/\.[^.]+$/, "");
+      return { artist, album: title || trackTitle, title: trackTitle };
+    }
+
+    // Fallback: just use media-title
+    return { artist: "", album: "", title: title || "Unknown" };
+  } catch {
+    return null;
+  }
+}
+
 async function cmdStatus() {
   const state = await syncCurrentIndexFromMpv(loadState());
   const { execSync } = require("child_process");
@@ -645,32 +700,49 @@ async function cmdStatus() {
   } else {
     console.log("mpv: not running");
   }
-  if (state.currentIndex >= 0 && state.queue[state.currentIndex]) {
+  // Read now-playing from mpv directly, not from state.json
+  const np = await mpvNowPlaying();
+  if (np && np.title) {
+    if (np.artist) {
+      console.log(`Now playing: ${np.artist} — ${np.title}`);
+    } else {
+      console.log(`Now playing: ${np.title}`);
+    }
+  } else if (state.currentIndex >= 0 && state.queue[state.currentIndex]) {
     const t = state.queue[state.currentIndex];
-    console.log(`Now playing: ${t.artist} — ${t.title}`);
+    console.log(`Now playing: ${t.artist} — ${t.title} (from state)`);
   }
 }
 
 async function cmdNow() {
   const state = await syncCurrentIndexFromMpv(loadState());
-  if (state.currentIndex >= 0 && state.queue[state.currentIndex]) {
+  const np = await mpvNowPlaying();
+  if (np && np.title) {
+    if (np.artist) {
+      console.log(`▶ ${np.artist} — ${np.title}`);
+      console.log(`   Album: ${np.album}`);
+    } else {
+      console.log(`▶ ${np.title}`);
+    }
+  } else if (state.currentIndex >= 0 && state.queue[state.currentIndex]) {
     const t = state.queue[state.currentIndex];
     console.log(`▶ ${t.artist} — ${t.title}`);
     console.log(`   Album: ${t.album}`);
     console.log(`   File:  ${t.relative}`);
-    try {
-      const resp = await sendMpvCommand(["get_property", "time-pos"]);
-      const durResp = await sendMpvCommand(["get_property", "duration"]);
-      const pos = Math.floor(resp?.data || 0);
-      const dur = Math.floor(durResp?.data || 0);
-      if (dur > 0) {
-        const fmt = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-        console.log(`   ${fmt(pos)} / ${fmt(dur)}`);
-      }
-    } catch {}
   } else {
     console.log("Nothing playing");
+    return;
   }
+  try {
+    const resp = await sendMpvCommand(["get_property", "time-pos"]);
+    const durResp = await sendMpvCommand(["get_property", "duration"]);
+    const pos = Math.floor(resp?.data || 0);
+    const dur = Math.floor(durResp?.data || 0);
+    if (dur > 0) {
+      const fmt = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+      console.log(`   ${fmt(pos)} / ${fmt(dur)}`);
+    }
+  } catch {}
 }
 
 async function cmdVolume(args) {
