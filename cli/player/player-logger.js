@@ -40,13 +40,27 @@ function rotateIfNeeded() {
   }
 }
 
+// Recursively decode percent-encoded strings in an object (for log readability)
+function decodeUrl(o) {
+  if (typeof o === "string") {
+    try { return decodeURIComponent(o); } catch { return o; }
+  }
+  if (Array.isArray(o)) return o.map(decodeUrl);
+  if (o && typeof o === "object") {
+    const r = {};
+    for (const k of Object.keys(o)) r[k] = decodeUrl(o[k]);
+    return r;
+  }
+  return o;
+}
+
 function write(level, msg, data) {
   ensureDir();
   rotateIfNeeded();
   const d = new Date();
   const ts = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}:${String(d.getSeconds()).padStart(2,"0")}`;
   const paddedLevel = level.padEnd(6);
-  const dataStr = data !== undefined ? "  " + JSON.stringify(data) : "";
+  const dataStr = data !== undefined ? "  " + JSON.stringify(decodeUrl(data)) : "";
   const line = `[${ts}] [${paddedLevel}] ${msg}${dataStr}\n`;
   try {
     fs.appendFileSync(LOG_FILE, line);
