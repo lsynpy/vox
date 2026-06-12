@@ -281,9 +281,7 @@ async function syncCurrentIndexFromMpv(state) {
       if (state.currentIndex + mpvIndex < state.queue.length) {
         state.currentIndex = state.currentIndex + mpvIndex;
       }
-      // Reset mpv playlist to current + remaining
       saveState(state);
-      await loadQueueToMpvPlaylist(state);
     }
   } catch { /* mpv may be idle */ }
   return state;
