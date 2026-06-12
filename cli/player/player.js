@@ -205,6 +205,44 @@ function searchScored(query) {
 
 // ─── mpv control ─────────────────────────────────────────────
 
+// Populate mpv's internal playlist with all remaining queue tracks
+// so mpv auto-advances when a song finishes.
+async function loadQueueToMpvPlaylist(state) {
+  if (state.currentIndex < 0 || state.queue.length === 0) return;
+
+  // Clear mpv's internal playlist
+  try { await sendMpvCommand(["playlist-clear"]); } catch { /* ignore */ }
+
+  // Load current track (replace any existing playlist)
+  const current = state.queue[state.currentIndex];
+  try { await sendMpvCommand(["loadfile", current.filepath, "replace"]); } catch { /* ignore */ }
+
+  // Append remaining tracks
+  for (let i = state.currentIndex + 1; i < state.queue.length; i++) {
+    try { await sendMpvCommand(["loadfile", state.queue[i].filepath, "append"]); } catch { /* ignore */ }
+  }
+}
+
+// Sync state.currentIndex from mpv's playlist position (handles auto-advance)
+async function syncCurrentIndexFromMpv(state) {
+  if (!state.pid) return state;
+  try {
+    const resp = await sendMpvCommand(["get_property", "playlist-pos"]);
+    if (resp && typeof resp.data === "number" && resp.data >= 0) {
+      const mpvIndex = resp.data;
+      // mpv playlist-pos is relative to its playlist which starts at current track
+      // Our queue has the full list; if mpv advanced by N, update ours
+      if (state.currentIndex + mpvIndex < state.queue.length) {
+        state.currentIndex = state.currentIndex + mpvIndex;
+      }
+      // Reset mpv playlist to current + remaining
+      saveState(state);
+      await loadQueueToMpvPlaylist(state);
+    }
+  } catch { /* mpv may be idle */ }
+  return state;
+}
+
 function sendMpvCommand(command) {
   return new Promise((resolve, reject) => {
     const client = new net.Socket();
@@ -328,6 +366,7 @@ async function cmdPlay(query) {
 
   try {
     await sendMpvCommand(["loadfile", best.filepath, "replace"]);
+    await loadQueueToMpvPlaylist(state);
     console.log(`Playing: ${best.artist} — ${best.title}`);
     if (results.length > 1) {
       console.log(`  (${results.length - 1} more matches, use queue or list to browse)`);
@@ -395,17 +434,15 @@ async function cmdStop() {
 
 async function cmdNext() {
   let state = loadState();
+  state = await syncCurrentIndexFromMpv(state);
   if (state.currentIndex < state.queue.length - 1) {
     state.currentIndex++;
     saveState(state);
+    state = await ensureMpv(state);
+    // loadQueueToMpvPlaylist handles loading current + appending rest
+    await loadQueueToMpvPlaylist(state);
     const track = state.queue[state.currentIndex];
-    try {
-      state = await ensureMpv(state);
-      await sendMpvCommand(["loadfile", track.filepath, "replace"]);
-      console.log(`Playing: ${track.artist} — ${track.title}`);
-    } catch (err) {
-      console.error(`Failed to play next: ${err.message}`);
-    }
+    console.log(`Playing: ${track.artist} — ${track.title}`);
   } else {
     console.log("No more tracks in queue");
   }
@@ -413,17 +450,14 @@ async function cmdNext() {
 
 async function cmdPrev() {
   let state = loadState();
+  state = await syncCurrentIndexFromMpv(state);
   if (state.currentIndex > 0) {
     state.currentIndex--;
     saveState(state);
+    state = await ensureMpv(state);
+    await loadQueueToMpvPlaylist(state);
     const track = state.queue[state.currentIndex];
-    try {
-      state = await ensureMpv(state);
-      await sendMpvCommand(["loadfile", track.filepath, "replace"]);
-      console.log(`Playing: ${track.artist} — ${track.title}`);
-    } catch (err) {
-      console.error(`Failed to play previous: ${err.message}`);
-    }
+    console.log(`Playing: ${track.artist} — ${track.title}`);
   } else {
     console.log("No previous track");
   }
@@ -462,6 +496,7 @@ async function cmdQueueJump(query) {
   state = await ensureMpv(state);
   try {
     await sendMpvCommand(["loadfile", match.track.filepath, "replace"]);
+    await loadQueueToMpvPlaylist(state);
     console.log(`Jumped to [${match.index + 1}/${state.queue.length}]: ${match.track.artist} — ${match.track.title}`);
     if (matches.length > 1) {
       console.log(`  (${matches.length - 1} more matches in queue)`);
@@ -518,7 +553,7 @@ async function cmdList() {
 }
 
 async function cmdStatus() {
-  const state = loadState();
+  const state = await syncCurrentIndexFromMpv(loadState());
   console.log(`Volume: ${state.volume}%`);
   if (state.pid) {
     console.log("mpv: running");
@@ -548,7 +583,7 @@ async function cmdStatus() {
 }
 
 async function cmdNow() {
-  const state = loadState();
+  const state = await syncCurrentIndexFromMpv(loadState());
   if (state.currentIndex >= 0 && state.queue[state.currentIndex]) {
     const t = state.queue[state.currentIndex];
     console.log(`▶ ${t.artist} — ${t.title}`);
@@ -786,6 +821,7 @@ async function cmdPlaylist(name) {
     state = await ensureMpv(state);
     try {
       await sendMpvCommand(["loadfile", localTracks[0].filepath, "replace"]);
+      await loadQueueToMpvPlaylist(state);
       console.log(`Playing: ${localTracks[0].artist} — ${localTracks[0].title}`);
     } catch (err) {
       console.error(`Failed to play: ${err.message}`);
@@ -818,6 +854,10 @@ async function cmdShuffle() {
     state.currentIndex = -1;
   }
   saveState(state);
+  // Reload mpv's internal playlist with shuffled queue
+  if (state.pid && state.currentIndex >= 0) {
+    try { await loadQueueToMpvPlaylist(state); } catch { /* ignore */ }
+  }
   console.log(`Shuffled ${state.queue.length} tracks`);
 }
 
