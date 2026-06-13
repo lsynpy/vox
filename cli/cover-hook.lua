@@ -169,7 +169,7 @@ end)
 -- When mpv is idle: load fav playlist shuffled and play.
 -- When a track is loaded: toggle pause (default behavior).
 
-local PLAY_FAV_SCRIPT = "/Users/kt/code/vox/cli/voxctl/play-fav.sh"
+local PLAY_FAV_SCRIPT = "/Users/kt/code/vox/cli/play-fav.sh"
 
 mp.add_key_binding("Play", "play-fav", function()
     local path = mp.get_property("path")

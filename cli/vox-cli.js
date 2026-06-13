@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * voxctl — macOS CLI music player for Vox music library.
+ * vox-cli — macOS CLI music player for Vox music library.
  *
  * No local state caching — everything reads from mpv IPC or Vox API in real time.
  * mpv's own internal playlist IS the queue. No local state.json.
@@ -15,7 +15,7 @@ const fs = require("fs");
 const path = require("path");
 const net = require("net");
 const os = require("os");
-const { PLAYER_DIR, info, warn, error } = require("./voxctl-logger");
+const { PLAYER_DIR, info, warn, error } = require("./vox-cli-logger");
 
 // ─── Configuration ───────────────────────────────────────────
 const MUSIC_DIR = path.join(os.homedir(), "Music", "vox");
@@ -499,7 +499,7 @@ async function cmdList() {
 }
 
 async function cmdQueueJump(query) {
-  if (!query) { console.log("Usage: voxctl jump <query>"); return; }
+  if (!query) { console.log("Usage: vox-cli jump <query>"); return; }
 
   const entries = await mpvPlaylistEntries();
   if (entries.length === 0) { console.log("Queue is empty"); return; }
@@ -617,7 +617,7 @@ async function cmdVolume(args) {
 async function cmdSysvol(level) {
   info("cmd_sysvol", { level });
   if (isNaN(level) || level < 0 || level > 100) {
-    console.log("Usage: voxctl sysvol <0-100>");
+    console.log("Usage: vox-cli sysvol <0-100>");
     return;
   }
   const { execSync } = require("child_process");
@@ -630,7 +630,7 @@ async function cmdSysvol(level) {
 async function cmdSeek(args) {
   const amount = args[0];
   info("cmd_seek", { amount });
-  if (!amount) { console.log("Usage: voxctl seek <+/-seconds>"); return; }
+  if (!amount) { console.log("Usage: vox-cli seek <+/-seconds>"); return; }
   try {
     await sendMpvCommand(["seek", amount, "relative"]);
     console.log(`Seek ${amount}s`);
@@ -650,9 +650,9 @@ async function cmdSearch(query) {
 
 function cmdHelp() {
   console.log(`
-voxctl — macOS CLI music player
+vox-cli — macOS CLI music player
 
-Usage: voxctl <command> [args]
+Usage: vox-cli <command> [args]
 
 Playback:
   play <query>        Search and play a song
@@ -685,13 +685,13 @@ Info:
   help                Show this help
 
 Examples:
-  voxctl playlist          Load fav playlist and start playing
-  voxctl playlist jazz     Load a playlist named "jazz"
-  voxctl shuffle           Randomize current queue
-  voxctl pl-add 消愁       Add "消愁" to the current playlist
-  voxctl pl-remove 消愁    Remove "消愁" from the playlist
-  voxctl play 漠河舞厅
-  voxctl volume 60
+  vox-cli playlist          Load fav playlist and start playing
+  vox-cli playlist jazz     Load a playlist named "jazz"
+  vox-cli shuffle           Randomize current queue
+  vox-cli pl-add 消愁       Add "消愁" to the current playlist
+  vox-cli pl-remove 消愁    Remove "消愁" from the playlist
+  vox-cli play 漠河舞厅
+  vox-cli volume 60
 `);
 }
 
@@ -836,7 +836,7 @@ async function cmdShuffle() {
 
 async function cmdPlaylistAdd(query) {
   info("cmd_pl-add", { query });
-  if (!query) { console.log("Usage: voxctl pl-add <query>"); return; }
+  if (!query) { console.log("Usage: vox-cli pl-add <query>"); return; }
   const results = searchScored(query);
   if (results.length === 0) { console.log(`No results for "${query}"`); return; }
 
@@ -863,7 +863,7 @@ async function cmdPlaylistAdd(query) {
 
 async function cmdPlaylistRemove(query) {
   info("cmd_pl-remove", { query });
-  if (!query) { console.log("Usage: voxctl pl-remove <query>"); return; }
+  if (!query) { console.log("Usage: vox-cli pl-remove <query>"); return; }
   try {
     const playlistName = "fav";
     const data = await voxGet(`/api/playlist/${playlistName}`);

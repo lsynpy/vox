@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Shared logger for voxctl.
+ * Shared logger for vox-cli.
  *
  * All temp files, cover images, and logs go to /tmp/vox-player/.
  * Log rotation at 5 MB.
