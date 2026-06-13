@@ -22,11 +22,29 @@ const MUSIC_DIR = path.join(os.homedir(), "Music", "vox");
 const SOCKET_DIR = path.join(os.homedir(), ".vox", "player");
 const IPC_SOCKET = path.join(SOCKET_DIR, "mpv.sock");
 const MPV_LOG = path.join(SOCKET_DIR, "mpv.log");
+const PLAYLIST_STATE_FILE = path.join(SOCKET_DIR, "current_playlist");
 
 // Vox server config
 const VOX_URL = "http://192.168.100.1:5050";
 const VOX_CREDS = { username: "admin", password: "admin" };
 const VOX_MOUNT = "Music";
+
+// ─── Playlist state tracking ──────────────────────────
+
+function savePlaylistState(name) {
+  try {
+    fs.mkdirSync(SOCKET_DIR, { recursive: true });
+    fs.writeFileSync(PLAYLIST_STATE_FILE, name, "utf-8");
+  } catch {}
+}
+
+function getPlaylistState() {
+  try { return fs.readFileSync(PLAYLIST_STATE_FILE, "utf-8").trim(); } catch { return null; }
+}
+
+function clearPlaylistState() {
+  try { fs.unlinkSync(PLAYLIST_STATE_FILE); } catch {}
+}
 
 // ─── Music library search ────────────────────────────────────
 
@@ -48,9 +66,9 @@ const SIMP_TO_TRAD = {
   "新":"新","裤":"褲","子":"子","刺":"刺","猬":"猬","回":"回","春":"春","丹":"丹",
   "椅":"椅","子":"子","乐":"樂","团":"團","飛":"飛","兒":"兒","軍":"軍","隊":"隊",
   "刘":"劉","若":"若","英":"英","任":"任","賢":"賢","齊":"齊",
-  "古":"古","巨":"巨","基":"基","周":"周","华":"華","健":"健",
-  "陈":"陳","慧":"慧","琳":"琳","柏":"柏","宇":"宇","潔":"潔","儀":"儀","绮":"綺","貞":"貞",
-  "beyond":"beyond","tank":"tank","oasis":"oasis",
+  "古": "古", "巨": "巨", "基": "基", "周": "周", "华": "華", "健": "健",
+  "爱": "愛",
+  "beyond": "beyond", "tank": "tank", "oasis": "oasis",
 };
 
 function normChinese(s) {
@@ -377,9 +395,33 @@ async function cmdPlay(query) {
   const best = results[0];
   await ensureMpv();
 
+  // Check if the song is already in current playlist → jump within queue
+  try {
+    const entries = await mpvPlaylistEntries();
+    if (entries.length > 0) {
+      const match = entries.find(e => {
+        const info = parseTrackInfo(e.filename);
+        if (!info) return false;
+        const playlistLabel = `${info.artist} — ${info.title}`.toLowerCase();
+        const queryLabel = `${best.artist} — ${best.title}`.toLowerCase();
+        return playlistLabel === queryLabel
+          || playlistLabel.includes(queryLabel)
+          || queryLabel.includes(playlistLabel);
+      });
+      if (match) {
+        await sendMpvCommand(["playlist-play-index", match.index]);
+        console.log(`Playing: ${best.artist} — ${best.title} (in current queue)`);
+        setTimeout(() => pushCoverArt(), 500);
+        return;
+      }
+    }
+  } catch { /* fall through to default */ }
+
+  // Queue is empty or song not in queue → play standalone
   try {
     const url = await resolveTrackUrl(best.relative);
     await sendMpvCommand(["loadfile", url, "replace"]);
+    clearPlaylistState();
     console.log(`Playing: ${best.artist} — ${best.title}`);
     setTimeout(() => pushCoverArt(), 500);
     if (results.length > 1) {
@@ -422,6 +464,7 @@ async function cmdStop() {
   try {
     await sendMpvCommand(["stop"]);
     await sendMpvCommand(["playlist-clear"]);
+    clearPlaylistState();
     console.log("Stopped");
   } catch (err) { console.error(`Failed to stop: ${err.message}`); }
 }
@@ -548,6 +591,9 @@ async function cmdStatus() {
     console.log("mpv: running");
     const paused = pauseResp?.data === true;
     console.log(`State: ${paused ? "⏸ Paused" : "▶ Playing"}`);
+
+    const pl = getPlaylistState();
+    console.log(`Playlist: ${pl || "(none)"}`);
 
     const timeResp = await sendMpvCommand(["get_property", "time-pos"]);
     const durResp = await sendMpvCommand(["get_property", "duration"]);
@@ -809,6 +855,7 @@ async function cmdPlaylist(args) {
       await sendMpvCommand(["playlist-play-index", 0]);
       console.log(`Loaded playlist "${name}" (${loaded}/${plPaths.length} tracks)`);
     }
+    savePlaylistState(name);
 
     setTimeout(() => pushCoverArt(), 500);
 
