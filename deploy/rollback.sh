@@ -47,8 +47,7 @@ rollback_remote() {
             -v ${CONFIG_DIR}:/var/lib/vox \
             -v ${CACHE_DIR}:/var/cache/vox \
             ${IMAGE_TAG} \
-            -f \
-            -w /usr/share/vox/web
+            -f
 
         docker ps --filter "name=${CONTAINER_NAME}"
 REMOTE_EOF

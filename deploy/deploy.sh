@@ -62,7 +62,7 @@ deploy_container() {
             -v "${CONFIG_DIR}:/var/lib/vox" \
             -v "${CACHE_DIR}:/var/cache/vox" \
             "${IMAGE_TAG}" \
-            -f -w /usr/share/vox/web
+            -f
     else
         ssh "${VPS_HOSTNAME}" bash <<SSH_EOF
             set -euo pipefail
@@ -79,7 +79,7 @@ deploy_container() {
                 -v ${CONFIG_DIR}:/var/lib/vox \
                 -v ${CACHE_DIR}:/var/cache/vox \
                 ${IMAGE_TAG} \
-                -f -w /usr/share/vox/web
+                -f
 SSH_EOF
     fi
 }

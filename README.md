@@ -7,13 +7,13 @@ for personal use with ARM64 deployment.
 
 ## Project Structure
 
-| Directory | Description                       |
-|-----------|-----------------------------------|
-| `server/` | Rust backend (Cargo project root) |
-| `web/`    | Vue.js frontend web UI            |
-| `deploy/` | Deployment scripts                |
-| `cli/`    | macOS CLI player (vox-cli)        |
-| `docs/`   | Documentation                     |
+| Directory | Description                           |
+|-----------|---------------------------------------|
+| `server/` | Rust backend (Cargo project root)     |
+| (removed) | Vue.js web UI — deleted, CLI-only now |
+| `deploy/` | Deployment scripts                    |
+| `cli/`    | macOS CLI player (vox-cli)            |
+| `docs/`   | Documentation                         |
 
 ---
 
@@ -155,19 +155,10 @@ cargo build --release
 cargo run -- -f   # -f = foreground (don't daemonize)
 ```
 
-### Web UI (Vue.js)
-
-```bash
-cd web
-npm install       # first time only
-npm run dev       # Vite dev server with hot reload
-```
-
 ### Tests
 
 ```bash
-cd server && cargo test    # Rust unit tests
-cd web && npm test         # Playwright E2E tests
+cd server && cargo test    # Rust unit/integration tests
 ```
 
 API docs available at `http://localhost:5050/api-docs/` after starting the server.
@@ -176,24 +167,13 @@ API docs available at `http://localhost:5050/api-docs/` after starting the serve
 
 Both local and remote deployments use pre-built binaries from GitHub Actions — no local Rust compilation.
 
-### 2-Step Deploy Flow
+Image tags use `YYYYMMDD-sha` format (e.g. `20260413-abc1234`) for easy rollback.
 
 ```bash
-# Step 1: Build web, download binary, build & push image to registry
-make prepare
-
-# Step 2: Deploy to local Docker or JDC
+# Deploy to local Docker or JDC
 make deploy ENV=local    # local Docker
 make deploy ENV=jdc      # remote JDC server
 ```
-
-Or combine both:
-
-```bash
-make prepare-deploy ENV=jdc
-```
-
-Image tags use `YYYYMMDD-sha` format (e.g. `20260413-abc1234`) for easy rollback.
 
 ### GitHub Actions Workflows
 

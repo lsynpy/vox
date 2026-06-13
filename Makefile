@@ -1,4 +1,4 @@
-.PHONY: help deploy dev serve watch test test_server test_web
+.PHONY: help deploy serve test test_server
 
 SHELL := /usr/bin/env bash
 DEPLOY_DIR := $(shell pwd)/deploy
@@ -22,14 +22,11 @@ help:
 	@echo "  deploy ENV=jdc           Build, push, and deploy to JDC"
 	@echo ""
 	@echo "Development:"
-	@echo "  dev    Build web and start server (static)"
 	@echo "  serve  Vox API server only"
-	@echo "  watch  Vue dev server with HMR"
 	@echo ""
 	@echo "Testing:"
-	@echo "  test          Run all tests (server + web e2e)"
+	@echo "  test          Run all tests"
 	@echo "  test_server   Run Rust unit/integration tests"
-	@echo "  test_web      Run Playwright end-to-end tests"
 	@echo ""
 	@echo "Options:"
 	@echo "  IMAGE_TAG=...  Override auto-generated image tag"
@@ -50,23 +47,13 @@ deploy:
 # ===================================================================
 # Dev targets
 # ===================================================================
-dev:
-	cd web && npm run build
-	cd server && cargo run -- -f -w ../web/dist
-
 serve:
 	cd server && cargo run -- -f
-
-watch:
-	cd web && npm run dev
 
 # ===================================================================
 # Test targets
 # ===================================================================
-test: test_server test_web
+test: test_server
 
 test_server:
 	cd server && RUST_BACKTRACE=full cargo test
-
-test_web:
-	-cd web && npx playwright test || open playwright-report/index.html

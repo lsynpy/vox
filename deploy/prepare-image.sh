@@ -187,13 +187,7 @@ fi
 
 # ---------------------------------------------------------------------------
 echo ""
-echo "[4/4] Building web UI and multi-arch Docker image..."
-
-cd "${PROJECT_DIR}/web" && npm ci && npm run build
-echo "  Web UI built"
-
-mkdir -p "${TMPDIR}/web"
-cp -r "${PROJECT_DIR}/web/dist/"* "${TMPDIR}/web/"
+echo "[4/4] Building multi-arch Docker image..."
 
 cat > "${TMPDIR}/Dockerfile" << 'DOCKERFILE'
 FROM debian:bookworm-slim
@@ -204,10 +198,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /usr/share/vox/web /var/cache/vox /var/lib/vox
+RUN mkdir -p /var/cache/vox /var/lib/vox
 
 COPY server/vox-${TARGETARCH} /usr/local/bin/vox
-COPY web /usr/share/vox/web
 
 WORKDIR /var/lib/vox
 

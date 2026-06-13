@@ -59,11 +59,6 @@ server/                 # Rust backend (Rust project root)
 ├── test-data/           # Test fixtures
 └── test-output/         # Test snapshots
 
-web/                    # Frontend web UI (React + TypeScript)
-├── package.json
-├── src/
-└── ...
-
 deploy/                 # Deployment scripts
 ├── .env.local           # Local Docker config
 ├── .env.jdc             # JDC server config
